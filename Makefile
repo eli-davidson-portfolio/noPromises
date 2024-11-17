@@ -1,14 +1,14 @@
-.PHONY: test lint clean build
-
-test:
-    go test -v -race ./...
+.PHONY: lint test build
 
 lint:
-    golangci-lint run
+	golangci-lint run
+
+test:
+	go test -v ./...
 
 build:
-    go build -v ./...
+	go build -o bin/nop cmd/nop/main.go
 
 clean:
-    go clean
-    rm -f coverage.out
+	go clean
+	rm -f coverage.out
