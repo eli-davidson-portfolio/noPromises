@@ -4,7 +4,7 @@ about: Create a report to help improve noPromises
 title: '[BUG] '
 labels: ['bug', 'triage']
 assignees: ''
-projects: ['noPromises Development']
+projects: ['elleshadow/projects/37']
 ---
 
 ## Bug Description
