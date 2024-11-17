@@ -1,18 +1,20 @@
-# GoFlows: Classical Flow-Based Programming for Go
+# noPromises: Classical Flow-Based Programming in Go
 
-GoFlows is a principled implementation of J. Paul Morrison's Flow-Based Programming (FBP) paradigm in Go, emphasizing type safety, true concurrency, and compile-time guarantees. We're not just building another dataflow framework; we're creating a system that genuinely embodies the core principles of FBP while leveraging Go's natural strengths in concurrent programming.
+noPromises is a strict implementation of J. Paul Morrison's Flow-Based Programming (FBP) paradigm in Go. Unlike promise-based or reactive systems, noPromises embraces Go's channel-based concurrency and type system to create truly independent processes that communicate solely through message passing.
+
+The name reflects our philosophy: instead of promises, callbacks, or reactive streams, we use bounded buffers and explicit message passing. Every connection is a contract, every process is independent, and the network is the program.
 
 ## Core Philosophy
 
 ### True to Classical FBP
-GoFlows strictly adheres to the fundamental principles of FBP:
+noPromises strictly adheres to the fundamental principles of FBP:
 
 1. **Applications as Networks**
-   - Programs are designed as networks of black box processes
-   - Processes exchange data through pre-defined connections
-   - Networks are defined separately from processes
+   - Programs are networks of black box processes
+   - Processes communicate only through pre-defined connections
+   - Network structure is separate from process logic
    ```go
-   network := flows.NewNetwork().
+   network := nop.NewNetwork().
        AddProcess("reader", NewReader()).
        AddProcess("transform", NewTransformer()).
        AddProcess("writer", NewWriter()).
@@ -21,12 +23,12 @@ GoFlows strictly adheres to the fundamental principles of FBP:
    ```
 
 2. **Processes as "Little Mainlines"**
-   - Each process runs independently
-   - Processes are unaware of each other
-   - Go's goroutines provide true concurrent execution
+   - Each process is a true independent unit
+   - No shared state or direct process communication
+   - Go's goroutines provide real concurrent execution
    ```go
    type Process[In, Out any] interface {
-       // Process runs independently in its own goroutine
+       // Each process runs independently in its own goroutine
        Process(ctx context.Context) error
        InPorts() []Port[In]
        OutPorts() []Port[Out]
@@ -34,8 +36,8 @@ GoFlows strictly adheres to the fundamental principles of FBP:
    ```
 
 3. **Information Packets (IPs)**
-   - Data flows as discrete packets
-   - IPs are owned by one process at a time
+   - All data flows as discrete packets
+   - IPs have clear ownership semantics
    - Type-safe implementation using Go generics
    ```go
    type IP[T any] struct {
@@ -46,9 +48,9 @@ GoFlows strictly adheres to the fundamental principles of FBP:
    ```
 
 4. **Bounded Buffers**
-   - All connections have fixed capacity
-   - Backpressure is handled explicitly
-   - Go channels provide natural implementation
+   - Every connection has a fixed capacity
+   - Backpressure is explicit and manageable
+   - Go channels provide the perfect primitive
    ```go
    type Connection[T any] struct {
        buffer    chan *IP[T]
@@ -57,35 +59,35 @@ GoFlows strictly adheres to the fundamental principles of FBP:
    }
    ```
 
-### Go's Natural Fit
+### Why Go is Perfect for FBP
 
-We leverage Go's strengths to enhance classical FBP:
+We leverage Go's unique features to enhance classical FBP:
 
-1. **Goroutines as Processes**
-   - Each FBP process runs in its own goroutine
-   - Scheduler handles true parallel execution
+1. **Goroutines as Natural Processes**
+   - Lightweight concurrent execution
+   - Built-in scheduling
    - Context-based lifecycle management
 
-2. **Channels as Connections**
-   - Go channels implement bounded buffers naturally
-   - Select statements for multi-port handling
-   - Built-in synchronization primitives
+2. **Channels as Perfect Connections**
+   - Native bounded buffer implementation
+   - Built-in synchronization
+   - Select-based multi-port handling
 
-3. **Type Safety with Generics**
-   - Compile-time type checking for IPs
-   - Type-safe ports and connections
-   - Generic process implementations
+3. **Type System as Safety Net**
+   - Generic type constraints
+   - Compile-time connection validation
+   - Interface-based component contracts
 
-4. **Error Handling**
-   - Go's error model for process failures
-   - Graceful error propagation
-   - Circuit breakers and recovery patterns
+4. **Error Model as Process Control**
+   - Explicit error handling
+   - Graceful failure propagation
+   - Resource cleanup guarantees
 
 ## Implementation Principles
 
-### 1. Strict Type Safety
+### 1. Type Safety Above All
 ```go
-// Example of type-safe process definition
+// Every process is fully type-safe
 type TransformProcess[In, Out any] struct {
     inPort  Port[In]
     outPort Port[Out]
@@ -93,7 +95,7 @@ type TransformProcess[In, Out any] struct {
 }
 ```
 
-### 2. Explicit Port Definitions
+### 2. Explicit Port Contracts
 ```go
 type Port[T any] struct {
     Name        string
@@ -103,18 +105,18 @@ type Port[T any] struct {
 }
 ```
 
-### 3. Bracket Support
+### 3. Hierarchical Data Support
 ```go
-// Support for hierarchical data structures
+// Full bracket support for nested structures
 type BracketManager[T any] struct {
     depth     int32
     trackers  stack.Stack[BracketType]
 }
 ```
 
-### 4. Resource Management
+### 4. Resource Safety
 ```go
-// Automatic resource cleanup
+// Guaranteed resource cleanup
 type ManagedProcess[In, Out any] struct {
     Process[In, Out]
     resources []Resource
@@ -122,90 +124,94 @@ type ManagedProcess[In, Out any] struct {
 }
 ```
 
-## Development Guidelines
+## Strict Development Rules
 
-### 1. Process Development
-- Processes must be completely independent
-- All configuration through Initial Information Packets (IIPs)
-- No shared state between processes
-- Explicit error handling and resource management
+### 1. Process Independence
+- Zero shared state
+- Configuration only through IIPs
+- Explicit port contracts
+- Resource isolation
 
 ### 2. Network Definition
-- Networks defined separately from process logic
-- Compile-time validation of connections
-- Support for hierarchical networks (substreams)
-- Dynamic network modification where necessary
+- Compile-time validation
+- Explicit connection capacity
+- Clear subnet boundaries
+- Deadlock prevention
 
 ### 3. Testing Requirements
-- Every process must have isolated tests
-- Network-level integration tests
-- Performance benchmarks for critical paths
-- Deadlock and race condition testing
+- Process isolation tests
+- Network integration tests
+- Performance benchmarks
+- Race condition verification
 
-### 4. Performance Considerations
-- Buffering strategies must be explicit
-- Resource pools for expensive operations
-- Monitoring and metrics built-in
-- Deadlock prevention mechanisms
+### 4. Performance Guidelines
+- Explicit buffer sizing
+- Resource pooling
+- Monitoring hooks
+- Backpressure handling
 
 ## Current Status
 
 🚧 **Under Active Development** 🚧
 
-We are currently in the early stages of development, focusing on:
+Currently focusing on:
 1. Core framework implementation
-2. Basic process types
+2. Basic process library
 3. Network execution engine
 4. Testing infrastructure
 
 ## Contributing
 
-We welcome contributions that align with our core philosophy. Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting pull requests.
+Contributions must align with our strict FBP principles. See [Contributing Guidelines](CONTRIBUTING.md) before submitting pull requests.
 
 ## Design Decisions
 
-We maintain strict adherence to FBP principles through:
+### 1. Process Isolation
+- No shared memory
+- Port-only communication
+- No global state
+- Clear ownership semantics
 
-1. **Isolation**
-   - Processes cannot share memory
-   - All communication through ports
-   - No global state
+### 2. Type System Usage
+- Generic constraints
+- Interface contracts
+- Compile-time validation
+- Full type inference
 
-2. **Type Safety**
-   - Compile-time type checking
-   - Generic process implementations
-   - Type-safe network definitions
+### 3. Resource Control
+- Automatic cleanup
+- Connection management
+- Buffer control
+- Lifecycle tracking
 
-3. **Resource Management**
-   - Automatic cleanup
-   - Connection pooling
-   - Bounded buffer enforcement
-
-4. **Error Handling**
-   - Process-level recovery
-   - Network-level error propagation
-   - Circuit breaker patterns
+### 4. Error Philosophy
+- Process-level recovery
+- Network error propagation
+- Circuit breaking
+- Graceful degradation
 
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details
 
-## Why GoFlows?
+## Why noPromises?
 
-1. **True to FBP**
-   - Not just a dataflow framework
-   - Complete implementation of FBP concepts
-   - Support for all FBP patterns
+1. **True to Classical FBP**
+   - Not just dataflow
+   - Not reactive streams
+   - Real FBP components
+   - True process isolation
 
 2. **Go Native**
-   - Leverages Go's concurrency model
-   - Type-safe implementations
-   - Excellent performance characteristics
+   - No runtime reflection
+   - Natural concurrency
+   - Type system power
+   - Simple mental model
 
 3. **Production Ready** (Soon)
-   - Comprehensive testing
-   - Full observability
-   - Resource management
-   - Error handling
+   - Full test coverage
+   - Complete observability
+   - Resource safety
+   - Performance focused
 
-Stay tuned for updates as we build a principled, production-grade FBP implementation in Go.
+Stay tuned as we build a pure, principled Flow-Based Programming implementation in Go.
