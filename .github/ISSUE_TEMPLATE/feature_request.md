@@ -4,7 +4,7 @@ about: Suggest an enhancement for noPromises
 title: '[FEATURE] '
 labels: ['enhancement', 'triage']
 assignees: ''
-projects: ['noPromises Development']
+projects: ['elleshadow/projects/37']
 ---
 
 ## Feature Description
