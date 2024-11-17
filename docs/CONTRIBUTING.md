@@ -3,6 +3,8 @@
 ## Development Requirements
 - Go 1.21+
 - golangci-lint
+- staticcheck
+- go-mod-outdated
 - Make (optional)
 
 ## Development Workflow

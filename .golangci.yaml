@@ -1,0 +1,20 @@
+linters:
+  enable:
+    - gofmt
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - revive
+    - misspell
+    - gocyclo
+    - dupl
+    - goconst
+    - prealloc
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
