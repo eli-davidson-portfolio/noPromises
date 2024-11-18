@@ -1,192 +1,269 @@
-# noPromises Architecture
+# Core Concepts: Flow-Based Programming in Go
 
-## Overview
+This document outlines the fundamental architectural concepts of our Flow-Based Programming (FBP) implementation in Go. These concepts strictly adhere to J. Paul Morrison's classical FBP principles while leveraging Go's native strengths in concurrent programming.
 
-noPromises is a strict implementation of Flow-Based Programming (FBP) in Go, emphasizing compile-time correctness, true concurrency, and adherence to classical FBP principles. This document outlines the architectural decisions, core components, and implementation guidelines.
+## 1. Foundational Elements
 
-## Core Principles
+### Information Packets (IPs)
 
-### 1. Classical FBP Adherence
-- **Processes as Black Boxes**: Each process is fully independent
-- **Port-Based Communication**: All data flow through typed ports
-- **Information Packets**: Data moves as discrete, owned packets
-- **Bounded Buffers**: All connections have fixed capacity
-- **External Coordination**: Network structure defined separately from processes
+IPs are the fundamental unit of data flowing through the network. In our implementation, they are type-safe and support metadata:
 
-### 2. Go Native Implementation
-- **Goroutines as Processes**: Each FBP process is a goroutine
-- **Channels as Connections**: Native bounded buffer implementation
-- **Type System**: Generic constraints and interface contracts
-- **Error Model**: Explicit error handling and propagation
-- **Context Usage**: Lifecycle and cancellation management
-
-## Core Components
-
-### 1. Information Packets (IPs)
 ```go
 type IP[T any] struct {
-    Type     IPType         // Normal, Bracket, Initial
-    Data     T             // Type-safe payload
-    Metadata map[string]any // Additional information
+    Type     IPType
+    Data     T
+    Metadata map[string]any
+    Origin   string    // Source tracking
+    FlowID   string    // Flow tracking
 }
+
+type IPType int
+
+const (
+    NormalIP IPType = iota
+    InitialIP      // IIP
+    OpenBracket
+    CloseBracket
+)
 ```
 
-- **Ownership Semantics**: Only one process owns an IP at a time
-- **Type Safety**: Generic implementation ensures type correctness
-- **Metadata Support**: Extensible metadata for debugging and tracking
-- **Special Types**: Support for brackets and Initial Information Packets (IIPs)
+### Ports
 
-### 2. Ports
+Ports are the connection points through which processes send and receive IPs:
+
 ```go
-type Port[T any] interface {
-    Send(ctx context.Context, data T) error
-    Receive(ctx context.Context) (T, error)
-    Close() error
-    Name() string
-    IsConnected() bool
+type Port[T any] struct {
+    Name        string
+    Description string
+    Required    bool
+    Channel     chan *IP[T]
+    MaxInputs   int  // For many-to-one connections
+    MaxOutputs  int  // For one-to-many connections
 }
 ```
 
-- **Direction Specific**: Input and output ports are distinct
-- **Type Safe**: Generic type parameters ensure compatibility
-- **Context Aware**: Support for cancellation and deadlines
-- **Connection Status**: Explicit connection state management
+### Processes
 
-### 3. Processes
+Processes are independent components that transform data. Each process runs in its own goroutine and communicates only through ports:
+
 ```go
 type Process[In, Out any] interface {
+    // Initialize is called once before processing begins
     Initialize(ctx context.Context) error
+    
+    // Process handles the main processing logic
     Process(ctx context.Context) error
-    Shutdown(ctx context.Context) error
+    
+    // Port management
     InPorts() []Port[In]
     OutPorts() []Port[Out]
+    
+    // InitialValues returns IIPs for configuration
+    InitialValues() map[string]interface{}
+    
+    // Shutdown is called when processing ends
+    Shutdown(ctx context.Context) error
 }
 ```
 
-- **Lifecycle Management**: Clear initialization and shutdown phases
-- **Port Declaration**: Explicit port definitions
-- **Resource Safety**: Guaranteed cleanup through shutdown phase
-- **Error Handling**: Comprehensive error management
+## 2. Network Definition and Management
 
-### 4. Networks
+### Network
+
+The Network is the core orchestrator that manages processes and their connections:
+
 ```go
-type Network interface {
-    AddProcess(name string, process Process) error
-    Connect(fromProcess, fromPort, toProcess, toPort string) error
-    Run(ctx context.Context) error
-    Stop(ctx context.Context) error
+type Network struct {
+    nodes       map[string]interface{}
+    connections map[string][]Connection
+    iips        map[string]*IP[interface{}]
 }
 ```
 
-- **Process Management**: Addition and removal of processes
-- **Connection Management**: Port connection and disconnection
-- **Validation**: Compile-time network validation where possible
-- **Runtime Control**: Start, stop, and monitoring capabilities
+Key responsibilities:
+- Process lifecycle management
+- Connection establishment
+- Network validation
+- Error propagation
+- Resource management
 
-## Implementation Details
+### Connections
 
-### 1. Resource Management
-- **Connection Pooling**: Reuse of connection resources
-- **Buffer Management**: Dynamic buffer sizing based on pressure
-- **Resource Cleanup**: Deterministic resource cleanup
-- **Memory Safety**: No resource leaks through careful tracking
+Connections are typed channels that carry IPs between processes:
 
-### 2. Error Handling
-- **Process Level**: Individual process error management
-- **Network Level**: Error propagation through network
-- **Circuit Breaking**: Automatic failure handling
-- **Recovery Strategies**: Configurable recovery policies
+```go
+type Connection struct {
+    buffer    chan IP
+    capacity  int
+    metrics   *ConnectionMetrics
+}
+```
 
-### 3. Concurrency Management
-- **Goroutine Control**: Careful goroutine lifecycle management
-- **Channel Usage**: Proper channel closure and cleanup
-- **Context Usage**: Cancellation and timeout management
-- **Deadlock Prevention**: Active detection and prevention
+Features:
+- Fixed buffer capacity
+- Automatic backpressure handling
+- Metrics collection
+- Type safety enforcement
 
-### 4. Performance Considerations
-- **Buffer Sizing**: Automatic or configurable buffer capacities
-- **Backpressure**: Explicit handling of buffer pressure
-- **Resource Pooling**: Connection and resource reuse
-- **Monitoring**: Built-in performance metrics
+## 3. Error Handling and Recovery
 
-## Design Patterns
+### Error Propagation
 
-### 1. Process Patterns
-- **Transform Process**: Basic data transformation
-- **Filter Process**: Data filtering and routing
-- **Merge Process**: Combining multiple inputs
-- **Split Process**: Distributing to multiple outputs
+Errors are handled at multiple levels:
 
-### 2. Network Patterns
-- **Pipeline**: Linear process chains
-- **Fan-Out**: Distribution patterns
-- **Fan-In**: Aggregation patterns
-- **Feedback Loops**: Controlled cyclic flows
+```go
+type NodeError struct {
+    NodeID    string
+    Severity  ErrorSeverity
+    Err       error
+    Timestamp time.Time
+    Context   map[string]any
+}
 
-### 3. Error Patterns
-- **Retry Pattern**: Automatic retry with backoff
-- **Circuit Breaker**: Failure protection
-- **Dead Letter Channel**: Error message handling
-- **Compensating Actions**: Error recovery
+type ErrorSeverity int
 
-## Testing Strategy
+const (
+    SeverityDebug ErrorSeverity = iota
+    SeverityInfo
+    SeverityWarning
+    SeverityError
+    SeverityFatal
+)
+```
 
-### 1. Unit Testing
-- **Process Testing**: Individual process behavior
-- **Port Testing**: Port contract verification
-- **IP Testing**: Packet handling verification
-- **Error Testing**: Error condition handling
+### Circuit Breaker
 
-### 2. Integration Testing
-- **Network Testing**: Full network behavior
-- **Flow Testing**: Data flow verification
-- **Error Propagation**: Error handling paths
-- **Resource Management**: Resource cleanup verification
+Protection against cascading failures:
 
-### 3. Performance Testing
-- **Benchmark Suite**: Standard performance tests
-- **Load Testing**: High-volume data handling
-- **Resource Usage**: Memory and goroutine tracking
-- **Deadlock Detection**: Concurrent behavior verification
+```go
+type CircuitBreaker struct {
+    failures      int
+    maxFailures   int
+    resetTimeout  time.Duration
+    lastFailure   time.Time
+    state         circuitState
+}
+```
 
-## Security Considerations
+## 4. Resource Management
 
-### 1. Resource Protection
-- **Bounded Memory**: Fixed buffer sizes
-- **Cleanup Guarantees**: Resource cleanup enforcement
-- **Isolation**: Process separation
-- **Input Validation**: Port-level validation
+### Resource Pooling
 
-### 2. Concurrency Safety
-- **Race Detection**: Built-in race condition checking
-- **Deadlock Prevention**: Active deadlock detection
-- **Resource Limits**: Explicit resource boundaries
-- **Cancellation**: Proper shutdown procedures
+Managed access to external resources:
 
-## Future Considerations
+```go
+type ResourcePool[T Resource] struct {
+    resources chan T
+    factory   func() (T, error)
+    size      int
+    active    map[T]time.Time
+}
+```
 
-### 1. Extensions
-- **Distribution**: Network distribution support
-- **Persistence**: State persistence options
-- **Monitoring**: Enhanced monitoring capabilities
-- **Visualization**: Network visualization tools
+### Resource Lifecycle
 
-### 2. Optimizations
-- **Buffer Tuning**: Automatic buffer optimization
-- **Resource Pooling**: Enhanced resource reuse
-- **Scheduling**: Advanced scheduling strategies
-- **Memory Management**: Reduced allocation patterns
+All resources implement a standard interface:
 
-## Versioning and Compatibility
+```go
+type Resource interface {
+    Initialize(ctx context.Context) error
+    Close(ctx context.Context) error
+    HealthCheck(ctx context.Context) error
+}
+```
 
-### 1. Version Strategy
-- **Semantic Versioning**: Clear version progression
-- **API Stability**: Interface stability guarantees
-- **Migration Support**: Version migration tools
-- **Deprecation Policy**: Clear deprecation process
+## 5. Monitoring and Observability
 
-### 2. Compatibility Guarantees
-- **API Compatibility**: Clear API version guarantees
-- **Network Compatibility**: Network definition stability
-- **Process Compatibility**: Process contract stability
-- **Upgrade Path**: Clear upgrade procedures
+### Metrics Collection
+
+Comprehensive metrics for processes and connections:
+
+```go
+type Metrics struct {
+    ProcessingTime  prometheus.Histogram
+    MessageCount    prometheus.Counter
+    ErrorCount      prometheus.Counter
+    BufferUsage     prometheus.Gauge
+}
+```
+
+### Health Checking
+
+Regular health status monitoring:
+
+```go
+type HealthStatus struct {
+    Status    string
+    Details   map[string]string
+    Timestamp time.Time
+}
+```
+
+## 6. Bracket Handling
+
+Support for hierarchical data structures:
+
+```go
+type BracketTracker struct {
+    depth     int
+    mu        sync.RWMutex
+    onClose   func()
+}
+```
+
+Features:
+- Nested structure support
+- Automatic bracket matching
+- Substream processing
+
+## 7. Key Design Principles
+
+### Process Independence
+- Each process runs in its own goroutine
+- No shared state between processes
+- Communication only through ports
+- Clear ownership semantics
+
+### Type Safety
+- Generic type constraints
+- Compile-time connection validation
+- Interface-based contracts
+- Full type inference
+
+### Resource Safety
+- Automatic cleanup
+- Connection management
+- Buffer control
+- Lifecycle tracking
+
+### Error Philosophy
+- Process-level recovery
+- Network error propagation
+- Circuit breaking
+- Graceful degradation
+
+## 8. Best Practices
+
+### Process Development
+- Keep processes focused on single responsibility
+- Use clear, descriptive port names
+- Handle context cancellation properly
+- Implement proper resource cleanup
+
+### Network Design
+- Use appropriate buffer sizes
+- Monitor for potential deadlocks
+- Implement error recovery strategies
+- Document network topology
+
+### Testing Requirements
+- Process isolation tests
+- Network integration tests
+- Performance benchmarks
+- Race condition verification
+
+### Performance Considerations
+- Explicit buffer sizing
+- Resource pooling
+- Monitoring hooks
+- Backpressure handling
