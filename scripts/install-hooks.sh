@@ -3,10 +3,10 @@
 # Create hooks directory if it doesn't exist
 mkdir -p .git/hooks
 
-# Copy the pre-commit hook
-cp .git/hooks/pre-commit .git/hooks/pre-commit
+# Copy pre-commit hook
+cp scripts/pre-commit .git/hooks/pre-commit
 
-# Make it executable
+# Make hook executable
 chmod +x .git/hooks/pre-commit
 
-echo "Pre-commit hook installed successfully!" 
+echo "Git hooks installed successfully!" 
