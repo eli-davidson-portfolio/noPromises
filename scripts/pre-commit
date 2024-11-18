@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+echo "Running pre-commit checks..."
+
+# Format all Go files
+echo "Formatting Go files..."
+gofmt -s -w .
+
+# Add formatted files back to staging
+git add -u
+
+# Run other checks
+make check
+
+echo "Pre-commit checks passed!" 

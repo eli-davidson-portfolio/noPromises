@@ -215,3 +215,11 @@ MIT License - See [LICENSE](LICENSE) for details
    - Performance focused
 
 Stay tuned as we build a pure, principled Flow-Based Programming implementation in Go.
+
+## Development Setup
+
+After cloning the repository, install the git hooks:
+
+```bash
+./scripts/install
+```
