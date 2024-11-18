@@ -191,3 +191,62 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details
+
+## Network Visualization
+
+Networks can be automatically visualized using Mermaid diagrams:
+
+### Simple Pipeline
+```mermaid
+graph LR
+    reader[FileReader]
+    transform[UpperCase]
+    writer[FileWriter]
+    reader -->|out| transform
+    transform -->|out| writer
+```
+
+### Fan-Out Pattern
+```mermaid
+graph LR
+    source[Source]
+    worker1[Worker]
+    worker2[Worker]
+    worker3[Worker]
+    source -->|out| worker1
+    source -->|out| worker2
+    source -->|out| worker3
+```
+
+### Status Visualization
+```mermaid
+graph LR
+    input[FileReader]:::running
+    process[WordCounter]:::error
+    output[FileWriter]:::waiting
+    
+    input -->|out| process
+    process -->|out| output
+    
+    classDef running fill:#d4edda,stroke:#28a745;
+    classDef error fill:#f8d7da,stroke:#dc3545;
+    classDef waiting fill:#fff3cd,stroke:#ffc107;
+```
+
+## Documentation Server
+
+The Flow Server includes a built-in documentation server:
+
+```bash
+# Start server
+go run cmd/server/main.go
+
+# View documentation
+open http://localhost:8080/docs
+
+# View network visualizations
+open http://localhost:8080/diagrams/network/flow1
+
+# View API documentation
+open http://localhost:8080/api-docs
+```
