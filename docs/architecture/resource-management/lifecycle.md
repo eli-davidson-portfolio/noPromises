@@ -1,218 +1,135 @@
 # Resource Lifecycle Management
 
-This document details the resource management system in our FBP implementation, focusing on lifecycle management of system resources.
+This document details how resources are managed throughout their lifecycle in our FBP implementation.
 
-## Core Components
+## Process Lifecycle
 
-### Resource Interface
+### States
+1. Uninitialized
+   - Default state for new processes
+   - No resources allocated
+   - No ports connected
+
+2. Initialized
+   - Resources allocated
+   - Ports ready for connection
+   - Ready for processing
+
+3. Running
+   - Actively processing data
+   - Ports connected
+   - Resources in use
+
+4. Shutdown
+   - Resources released
+   - Ports disconnected
+   - Process cleaned up
+
+### State Management
 
 ```go
-type Resource interface {
-    // Initialize sets up the resource
+type Process interface {
     Initialize(ctx context.Context) error
-    
-    // Close cleans up the resource
-    Close(ctx context.Context) error
-    
-    // HealthCheck verifies resource is operational
-    HealthCheck(ctx context.Context) error
+    Process(ctx context.Context) error
+    Shutdown(ctx context.Context) error
+    IsInitialized() bool
 }
 ```
 
-### Resource Pool
+## Port Lifecycle
 
+### States
+1. Created
+   - Port configured
+   - No connections
+   - Ready for setup
+
+2. Connected
+   - Channels established
+   - Ready for data flow
+   - Connection limits enforced
+
+3. Active
+   - Processing data
+   - Handling backpressure
+   - Managing flow control
+
+4. Disconnected
+   - Channels closed
+   - Resources released
+   - Ready for cleanup
+
+### Connection Management
 ```go
-type ResourcePool[T Resource] struct {
-    resources chan T
-    factory   func() (T, error)
-    size      int
-    mu        sync.RWMutex
-    active    map[T]time.Time
-}
+// Port creation
+port := ports.NewInput[T](name, desc, required)
+
+// Connection
+err := port.Connect(channel)
+
+// Active use
+err := port.Send(ctx, data)
+data, err := port.Receive(ctx)
 ```
 
-### Resource Manager
+## Network Lifecycle
 
+### States
+1. Created
+   - Empty process map
+   - No connections
+   - Ready for configuration
+
+2. Configured
+   - Processes added
+   - Connections established
+   - Ready to run
+
+3. Running
+   - Processes active
+   - Data flowing
+   - Error handling active
+
+4. Stopped
+   - Processes shutdown
+   - Resources released
+   - Network cleaned up
+
+### Management Operations
 ```go
-type ResourceManager struct {
-    pools    map[string]interface{}
-    mu       sync.RWMutex
-    ctx      context.Context
-    cancel   context.CancelFunc
-}
-```
+// Network creation
+net := network.New()
 
-## Lifecycle Phases
+// Configuration
+net.AddProcess(id, process)
+net.Connect(fromID, fromPort, toID, toPort)
 
-### 1. Initialization
-
-```go
-func (p *ResourcePool[T]) Initialize(ctx context.Context) error {
-    for i := 0; i < p.size; i++ {
-        resource, err := p.factory()
-        if err != nil {
-            return fmt.Errorf("initializing resource: %w", err)
-        }
-        
-        if err := resource.Initialize(ctx); err != nil {
-            return fmt.Errorf("initializing resource: %w", err)
-        }
-        
-        p.resources <- resource
-    }
-    return nil
-}
-```
-
-### 2. Resource Acquisition
-
-```go
-func (p *ResourcePool[T]) Acquire(ctx context.Context) (T, error) {
-    select {
-    case resource := <-p.resources:
-        if err := resource.HealthCheck(ctx); err != nil {
-            // Resource is unhealthy, create new one
-            newResource, err := p.factory()
-            if err != nil {
-                return resource, fmt.Errorf("creating new resource: %w", err)
-            }
-            resource = newResource
-        }
-        
-        p.mu.Lock()
-        p.active[resource] = time.Now()
-        p.mu.Unlock()
-        
-        return resource, nil
-    case <-ctx.Done():
-        var zero T
-        return zero, ctx.Err()
-    }
-}
-```
-
-### 3. Resource Release
-
-```go
-func (p *ResourcePool[T]) Release(resource T) {
-    p.mu.Lock()
-    delete(p.active, resource)
-    p.mu.Unlock()
-    
-    p.resources <- resource
-}
-```
-
-## Resource-Aware Components
-
-### Resource-Aware Node
-
-```go
-type ResourceAwareNode[In, Out any, R Resource] struct {
-    Node[In, Out]
-    pool      *ResourcePool[R]
-    processor func(ctx context.Context, resource R, data In) (Out, error)
-}
-
-func (n *ResourceAwareNode[In, Out, R]) Process(ctx context.Context, in Port[In], out Port[Out]) error {
-    for {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-            
-        case data, ok := <-in:
-            if !ok {
-                return nil
-            }
-            
-            // Acquire resource
-            resource, err := n.pool.Acquire(ctx)
-            if err != nil {
-                return fmt.Errorf("acquiring resource: %w", err)
-            }
-            
-            // Process with resource
-            result, err := n.processor(ctx, resource, data)
-            
-            // Release resource
-            n.pool.Release(resource)
-            
-            if err != nil {
-                return fmt.Errorf("processing with resource: %w", err)
-            }
-            
-            // Send result
-            select {
-            case out <- result:
-            case <-ctx.Done():
-                return ctx.Err()
-            }
-        }
-    }
-}
+// Execution
+err := net.Run(ctx)
 ```
 
 ## Best Practices
 
-1. **Resource Initialization**
-   - Initialize resources lazily
-   - Validate resource health after creation
-   - Handle initialization failures gracefully
+### Resource Cleanup
+- Always use defer for cleanup
+- Handle partial initialization
+- Clean up in reverse order
+- Handle cleanup errors
 
-2. **Resource Pooling**
-   - Size pools appropriately
-   - Monitor pool utilization
-   - Implement backpressure when needed
+### Error Handling
+- Propagate initialization errors
+- Clean up on errors
+- Handle context cancellation
+- Maintain consistency
 
-3. **Health Checks**
-   - Regular health validation
-   - Quick failure detection
-   - Automatic resource recreation
+### Context Usage
+- Pass context through lifecycle
+- Handle cancellation gracefully
+- Set appropriate timeouts
+- Cleanup on context done
 
-4. **Cleanup**
-   - Proper resource release
-   - Complete shutdown procedure
-   - Handle partial failures
-
-## Example Usage
-
-### Database Connection Pool
-```go
-type DBConnection struct {
-    conn interface{} // Replace with actual DB connection type
-}
-
-func (db *DBConnection) Initialize(ctx context.Context) error {
-    // Initialize DB connection
-    return nil
-}
-
-func (db *DBConnection) Close(ctx context.Context) error {
-    // Close DB connection
-    return nil
-}
-
-func (db *DBConnection) HealthCheck(ctx context.Context) error {
-    // Check if connection is alive
-    return nil
-}
-
-func Example_DatabasePool() {
-    // Create pool
-    dbPool := NewResourcePool[*DBConnection](10, func() (*DBConnection, error) {
-        return &DBConnection{}, nil
-    })
-    
-    // Create resource-aware node
-    dbNode := NewResourceAwareNode[string, string, *DBConnection](
-        &BaseNode{},
-        dbPool,
-        func(ctx context.Context, db *DBConnection, query string) (string, error) {
-            // Use DB connection to process query
-            return "result", nil
-        },
-    )
-    
-    // Use in network...
-}
-```
+### Testing
+- Test all lifecycle states
+- Verify cleanup
+- Check error conditions
+- Test cancellation

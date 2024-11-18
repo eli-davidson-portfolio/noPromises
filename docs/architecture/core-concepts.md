@@ -1,269 +1,145 @@
 # Core Concepts: Flow-Based Programming in Go
 
-This document outlines the fundamental architectural concepts of our Flow-Based Programming (FBP) implementation in Go. These concepts strictly adhere to J. Paul Morrison's classical FBP principles while leveraging Go's native strengths in concurrent programming.
+This document outlines the fundamental architectural concepts of our Flow-Based Programming (FBP) implementation in Go.
 
-## 1. Foundational Elements
+## Core Components
 
 ### Information Packets (IPs)
 
-IPs are the fundamental unit of data flowing through the network. In our implementation, they are type-safe and support metadata:
+IPs are the fundamental unit of data flowing through the network:
 
 ```go
 type IP[T any] struct {
-    Type     IPType
     Data     T
     Metadata map[string]any
-    Origin   string    // Source tracking
-    FlowID   string    // Flow tracking
 }
-
-type IPType int
-
-const (
-    NormalIP IPType = iota
-    InitialIP      // IIP
-    OpenBracket
-    CloseBracket
-)
 ```
+
+Key features:
+- Generic type support
+- Metadata storage
+- Thread-safe operations
+- Owner tracking
 
 ### Ports
 
-Ports are the connection points through which processes send and receive IPs:
+Ports are the connection points between processes:
 
 ```go
 type Port[T any] struct {
-    Name        string
-    Description string
-    Required    bool
-    Channel     chan *IP[T]
-    MaxInputs   int  // For many-to-one connections
-    MaxOutputs  int  // For one-to-many connections
+    name        string
+    description string
+    required    bool
+    portType    PortType
+    channels    []chan *IP[T]
+    maxConns    int
 }
 ```
+
+Features:
+- Type-safe connections
+- Connection limits
+- Buffered channels
+- Context-aware operations
+- Support for fan-out (output ports)
+- Support for fan-in (input ports)
 
 ### Processes
 
-Processes are independent components that transform data. Each process runs in its own goroutine and communicates only through ports:
+Processes are the computational units:
 
 ```go
-type Process[In, Out any] interface {
-    // Initialize is called once before processing begins
+type Process interface {
     Initialize(ctx context.Context) error
-    
-    // Process handles the main processing logic
     Process(ctx context.Context) error
-    
-    // Port management
-    InPorts() []Port[In]
-    OutPorts() []Port[Out]
-    
-    // InitialValues returns IIPs for configuration
-    InitialValues() map[string]interface{}
-    
-    // Shutdown is called when processing ends
     Shutdown(ctx context.Context) error
+    IsInitialized() bool
 }
 ```
 
-## 2. Network Definition and Management
+Features:
+- Context-aware lifecycle
+- Clean initialization/shutdown
+- State management
+- Error propagation
+- Port management
 
 ### Network
 
-The Network is the core orchestrator that manages processes and their connections:
+Networks orchestrate process execution:
 
 ```go
 type Network struct {
-    nodes       map[string]interface{}
-    connections map[string][]Connection
-    iips        map[string]*IP[interface{}]
-}
-```
-
-Key responsibilities:
-- Process lifecycle management
-- Connection establishment
-- Network validation
-- Error propagation
-- Resource management
-
-### Connections
-
-Connections are typed channels that carry IPs between processes:
-
-```go
-type Connection struct {
-    buffer    chan IP
-    capacity  int
-    metrics   *ConnectionMetrics
+    processes map[string]Process
 }
 ```
 
 Features:
-- Fixed buffer capacity
-- Automatic backpressure handling
-- Metrics collection
-- Type safety enforcement
-
-## 3. Error Handling and Recovery
-
-### Error Propagation
-
-Errors are handled at multiple levels:
-
-```go
-type NodeError struct {
-    NodeID    string
-    Severity  ErrorSeverity
-    Err       error
-    Timestamp time.Time
-    Context   map[string]any
-}
-
-type ErrorSeverity int
-
-const (
-    SeverityDebug ErrorSeverity = iota
-    SeverityInfo
-    SeverityWarning
-    SeverityError
-    SeverityFatal
-)
-```
-
-### Circuit Breaker
-
-Protection against cascading failures:
-
-```go
-type CircuitBreaker struct {
-    failures      int
-    maxFailures   int
-    resetTimeout  time.Duration
-    lastFailure   time.Time
-    state         circuitState
-}
-```
-
-## 4. Resource Management
-
-### Resource Pooling
-
-Managed access to external resources:
-
-```go
-type ResourcePool[T Resource] struct {
-    resources chan T
-    factory   func() (T, error)
-    size      int
-    active    map[T]time.Time
-}
-```
-
-### Resource Lifecycle
-
-All resources implement a standard interface:
-
-```go
-type Resource interface {
-    Initialize(ctx context.Context) error
-    Close(ctx context.Context) error
-    HealthCheck(ctx context.Context) error
-}
-```
-
-## 5. Monitoring and Observability
-
-### Metrics Collection
-
-Comprehensive metrics for processes and connections:
-
-```go
-type Metrics struct {
-    ProcessingTime  prometheus.Histogram
-    MessageCount    prometheus.Counter
-    ErrorCount      prometheus.Counter
-    BufferUsage     prometheus.Gauge
-}
-```
-
-### Health Checking
-
-Regular health status monitoring:
-
-```go
-type HealthStatus struct {
-    Status    string
-    Details   map[string]string
-    Timestamp time.Time
-}
-```
-
-## 6. Bracket Handling
-
-Support for hierarchical data structures:
-
-```go
-type BracketTracker struct {
-    depth     int
-    mu        sync.RWMutex
-    onClose   func()
-}
-```
-
-Features:
-- Nested structure support
-- Automatic bracket matching
-- Substream processing
-
-## 7. Key Design Principles
-
-### Process Independence
-- Each process runs in its own goroutine
-- No shared state between processes
-- Communication only through ports
-- Clear ownership semantics
-
-### Type Safety
-- Generic type constraints
-- Compile-time connection validation
-- Interface-based contracts
-- Full type inference
-
-### Resource Safety
-- Automatic cleanup
+- Process management
 - Connection management
-- Buffer control
-- Lifecycle tracking
+- Error handling
+- Context-based control
+- Clean shutdown
 
-### Error Philosophy
-- Process-level recovery
-- Network error propagation
-- Circuit breaking
-- Graceful degradation
+## Key Design Patterns
 
-## 8. Best Practices
+### Process Lifecycle
+1. Initialization
+2. Processing
+3. Shutdown
 
-### Process Development
-- Keep processes focused on single responsibility
-- Use clear, descriptive port names
-- Handle context cancellation properly
-- Implement proper resource cleanup
+### Error Handling
+- Context cancellation
+- Process errors
+- Connection errors
+- Cleanup on failure
 
-### Network Design
-- Use appropriate buffer sizes
-- Monitor for potential deadlocks
-- Implement error recovery strategies
-- Document network topology
+### Connection Management
+- Type-safe channels
+- Buffered connections
+- Connection limits
+- Fan-out support
 
-### Testing Requirements
-- Process isolation tests
-- Network integration tests
-- Performance benchmarks
-- Race condition verification
+### Concurrency Model
+- Process isolation
+- Channel-based communication
+- Context-based cancellation
+- Synchronized state access
 
-### Performance Considerations
-- Explicit buffer sizing
-- Resource pooling
-- Monitoring hooks
-- Backpressure handling
+## Best Practices
+
+### Process Implementation
+```go
+type CustomProcess struct {
+    process.BaseProcess
+    in  *ports.Port[InputType]
+    out *ports.Port[OutputType]
+}
+
+func (p *CustomProcess) Process(ctx context.Context) error {
+    for {
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        default:
+            // Process data
+        }
+    }
+}
+```
+
+### Network Configuration
+```go
+net := network.New()
+net.AddProcess("proc1", NewProcess1())
+net.AddProcess("proc2", NewProcess2())
+net.Connect("proc1", "out", "proc2", "in")
+```
+
+### Error Handling
+```go
+if err := net.Run(ctx); err != nil {
+    // Handle network error
+    // All processes will be properly shut down
+}
+```
