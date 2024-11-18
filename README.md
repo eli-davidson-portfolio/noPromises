@@ -104,34 +104,47 @@ if err := net.Run(ctx); err != nil {
 }
 ```
 
-## Key Features
+## Server Components (Coming Soon)
 
-### Type Safety
-- Generic type constraints
-- Compile-time connection validation
-- Type-safe data flow
+### Flow Server
+```go
+type FlowServer struct {
+    networks map[string]*Network    // Network management
+    registry *ProcessRegistry       // Process type registry
+    router   *chi.Router           // HTTP routing
+}
+```
 
-### Concurrency
-- Process isolation
-- Channel-based communication
-- Context-based cancellation
-- Thread-safe operations
+### Process Registry
+```go
+type ProcessRegistry struct {
+    processes map[string]ProcessFactory
+}
 
-### Error Handling
-- Context cancellation
-- Process errors
-- Connection errors
-- Clean shutdown
+type ProcessFactory func(config ProcessConfig) (Process, error)
+```
 
-### Resource Management
-- Connection limits
-- Buffered channels
-- Resource cleanup
-- State tracking
+### Flow Configuration
+```go
+type FlowConfig struct {
+    ID      string                 `json:"id"`
+    Nodes   map[string]NodeConfig  `json:"nodes"`
+    Edges   []EdgeConfig          `json:"edges"`
+}
+```
 
-## Development Status
+### HTTP API (Planned)
+- `POST /api/flows` - Create flow
+- `GET /api/flows` - List flows
+- `GET /api/flows/{id}` - Get flow details
+- `DELETE /api/flows/{id}` - Delete flow
+- `POST /api/flows/{id}/start` - Start flow
+- `POST /api/flows/{id}/stop` - Stop flow
+- `GET /api/processes` - List available processes
 
-Currently implemented:
+## Current Status
+
+### Implemented
 - ✅ Core IP system
 - ✅ Port management
 - ✅ Process lifecycle
@@ -140,11 +153,14 @@ Currently implemented:
 - ✅ Context support
 - ✅ Type safety
 
-In progress:
+### In Progress
+- 🚧 Flow server implementation
+- 🚧 Process registry
+- 🚧 HTTP API
+- 🚧 Flow configuration
 - 🚧 Advanced error handling
 - 🚧 Monitoring system
 - 🚧 Performance optimizations
-- 🚧 Additional process types
 
 ## Development Requirements
 - Go 1.21+
