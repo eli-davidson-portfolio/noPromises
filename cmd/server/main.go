@@ -2,29 +2,29 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 
-	"github.com/elleshadow/noPromises/pkg/server/docs"
+	"github.com/elleshadow/noPromises/pkg/server"
 )
 
 func main() {
 	// Parse command line flags
-	docsPath := flag.String("docs", "./docs", "Path to documentation files")
-	port := flag.String("port", "8080", "Server port")
+	port := flag.Int("port", 8080, "Server port")
 	flag.Parse()
 
-	// Create and configure docs server
-	docsServer := docs.NewServer(docs.Config{
-		DocsPath: *docsPath,
+	// Create and configure server
+	srv, err := server.NewServer(server.Config{
+		Port: *port,
 	})
-
-	// Setup routes
-	docsServer.SetupRoutes()
+	if err != nil {
+		log.Fatalf("Failed to create server: %v", err)
+	}
 
 	// Start server
-	log.Printf("Documentation server starting on http://localhost:%s/docs", *port)
-	if err := http.ListenAndServe(":"+*port, docsServer.Router()); err != nil {
+	log.Printf("Server starting on http://localhost:%d", *port)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), srv); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }
