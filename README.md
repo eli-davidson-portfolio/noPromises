@@ -163,6 +163,73 @@ make setup
 make test
 ```
 
+4. Build the server
+```bash
+make server-build
+```
+
+5. Start the server
+```bash
+# Start on default port 8080
+make server-start
+
+# Or start on custom port
+make server-start-port-3000
+```
+
+6. Stop the server
+```bash
+make server-stop
+```
+
+### Make Commands
+
+| Command | Description |
+|---------|-------------|
+| `make all` | Run all checks and build |
+| `make check` | Run linter and tests |
+| `make lint` | Run golangci-lint |
+| `make test` | Run tests with race detection |
+| `make format` | Format code |
+| `make build` | Build all binaries |
+| `make server-build` | Build server binary |
+| `make server-start` | Start server on port 8080 |
+| `make server-start-port-X` | Start server on port X |
+| `make server-stop` | Stop running server |
+| `make clean` | Clean build artifacts |
+
+### Example API Usage
+
+After starting the server:
+
+1. Create a flow:
+```bash
+curl -X POST http://localhost:8080/api/v1/flows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "example-flow",
+    "nodes": {
+      "reader": {
+        "type": "FileReader",
+        "config": {
+          "filename": "input.txt"
+        }
+      }
+    },
+    "edges": []
+  }'
+```
+
+2. Start the flow:
+```bash
+curl -X POST http://localhost:8080/api/v1/flows/example-flow/start
+```
+
+3. Check flow status:
+```bash
+curl http://localhost:8080/api/v1/flows/example-flow/status
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
