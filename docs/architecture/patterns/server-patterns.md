@@ -7,7 +7,8 @@ This document outlines key patterns implemented in the Flow Server subsystem.
 ### Server Configuration
 ```go
 type Config struct {
-    Port int
+    Port     int    // HTTP server port
+    DocsPath string // Documentation path
 }
 ```
 
@@ -17,10 +18,135 @@ type Server struct {
     config    Config
     router    *mux.Router
     flows     *FlowManager
-    processes *ProcessRegistry
+    docs      *docs.Server
     Handler   http.Handler
 }
 ```
+
+## Documentation Server Patterns
+
+### HTML Wrapper Pattern
+```go
+func (s *Server) renderDocPage(w http.ResponseWriter, content string) {
+    html := `<!DOCTYPE html>
+    <html>
+        <head>
+            <title>Documentation</title>
+            <link rel="stylesheet" href="/css/markdown.css">
+        </head>
+        <body>
+            <div class="markdown-body">
+                {{ .Content }}
+            </div>
+        </body>
+    </html>`
+    // Render template with content
+}
+```
+
+### Route Setup Pattern
+```go
+func (s *Server) setupRoutes() {
+    // Documentation routes
+    s.router.PathPrefix("/docs/").Handler(s.docs)
+    s.router.Handle("/api-docs", s.docs.SwaggerUI())
+    s.router.Handle("/diagrams/", s.docs.Diagrams())
+
+    // API routes
+    s.router.PathPrefix("/api/").Handler(s.api)
+}
+```
+
+### Middleware Chain
+```go
+func (s *Server) setupMiddleware() {
+    s.router.Use(
+        middleware.Logger,
+        middleware.Recoverer,
+        middleware.RequestID,
+        middleware.RealIP,
+    )
+}
+```
+
+## Response Patterns
+
+### JSON Response
+```go
+func respondJSON(w http.ResponseWriter, status int, data interface{}) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "data": data,
+    })
+}
+```
+
+### Error Response
+```go
+func respondError(w http.ResponseWriter, status int, err error) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "error": map[string]string{
+            "message": err.Error(),
+        },
+    })
+}
+```
+
+## Documentation Patterns
+
+### Markdown Processing
+```go
+func (s *Server) processMarkdown(content []byte) string {
+    // Convert Markdown to HTML
+    html := markdown.ToHTML(content)
+    
+    // Add syntax highlighting
+    html = highlight.Code(html)
+    
+    return html
+}
+```
+
+### Diagram Generation
+```go
+func (s *Server) generateDiagram(networkID string) (string, error) {
+    network, err := s.flows.Get(networkID)
+    if err != nil {
+        return "", err
+    }
+    
+    return s.docs.GenerateMermaid(network)
+}
+```
+
+## Best Practices
+
+### Error Handling
+- Use appropriate HTTP status codes
+- Provide clear error messages
+- Include error details when safe
+- Log errors appropriately
+
+### Request Processing
+- Validate input early
+- Use appropriate content types
+- Handle timeouts
+- Support graceful shutdown
+
+### Documentation
+- Keep docs close to code
+- Update docs with changes
+- Include examples
+- Test documentation
+
+### Testing
+- Unit test all patterns
+- Test error cases
+- Verify documentation
+- Check response formats
 
 ## Flow Management
 
@@ -156,28 +282,14 @@ func (s *Server) Start(ctx context.Context) error {
 }
 ```
 
-## Best Practices
+## Server Patterns
 
-### State Management
-- Use mutex protection for shared state
-- Prefer RLock for reads
-- Keep lock durations minimal
-- Copy data for responses when needed
+### Route Handling
+- Add documentation server patterns
+- Update route handling patterns
 
-### Error Handling
-- Return appropriate HTTP status codes
-- Provide clear error messages
-- Log errors appropriately
-- Clean up resources on error
+### File Serving
+- Add file serving patterns
 
-### Request Processing
-- Validate input early
-- Use appropriate content types
-- Handle timeouts
-- Support graceful shutdown
-
-### Testing
-- Use table-driven tests
-- Test concurrent operations
-- Verify state transitions
-- Check error conditions
+### HTML Wrapper
+- Document HTML wrapper patterns

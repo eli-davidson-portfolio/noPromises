@@ -6,105 +6,144 @@ This document details how documentation and visualizations are served through th
 
 ### Documentation Server
 ```go
-type DocsServer struct {
-    router     *chi.Router
+type Server struct {
+    router     *mux.Router
     docsPath   string
     mermaidGen *MermaidGenerator
 }
 
-func NewDocsServer(config DocsConfig) *DocsServer {
-    return &DocsServer{
-        router:     chi.NewRouter(),
+func NewServer(config Config) *Server {
+    return &Server{
+        router:     mux.NewRouter(),
         docsPath:   config.DocsPath,
         mermaidGen: NewMermaidGenerator(),
     }
 }
 ```
 
-### Documentation Routes
+### Route Setup
 ```go
-func (s *DocsServer) setupRoutes() {
-    // Static documentation
-    s.router.Get("/docs/*", http.StripPrefix("/docs/", 
-        http.FileServer(http.Dir(s.docsPath))))
-    
-    // Mermaid diagrams
-    s.router.Get("/diagrams/network/{id}", s.handleNetworkDiagram)
-    s.router.Get("/diagrams/network/{id}/live", s.handleLiveDiagram)
+func (s *Server) SetupRoutes() {
+    // Documentation routes
+    s.router.PathPrefix("/docs/").Handler(s.wrapMarkdown(http.FileServer(http.Dir(s.docsPath))))
     
     // API documentation
-    s.router.Get("/api-docs", s.handleSwaggerUI)
+    s.router.HandleFunc("/api-docs", s.HandleSwaggerUI)
+    s.router.HandleFunc("/api/swagger.json", s.serveSwaggerJSON)
+    
+    // Network visualization
+    s.router.HandleFunc("/diagrams/network/{id}", s.handleNetworkDiagram)
+    s.router.HandleFunc("/diagrams/network/{id}/live", s.handleLiveDiagram)
 }
 ```
 
 ## Features
 
-### Live Documentation
-- Markdown rendering
-- Code syntax highlighting
-- Navigation sidebar
-- Search functionality
-
-### Interactive Diagrams
-- Network visualization
-- Live updates
-- Status indicators
-- Zoom and pan
-
-## Integration
-
-### Flow Server Integration
+### Markdown Processing
 ```go
-type FlowServer struct {
-    // ... other fields ...
-    docsServer *DocsServer
+func (s *Server) wrapMarkdown(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if strings.HasSuffix(r.URL.Path, ".md") {
+            content, err := os.ReadFile(filepath.Join(s.docsPath, r.URL.Path))
+            if err != nil {
+                http.Error(w, "Documentation not found", http.StatusNotFound)
+                return
+            }
+            s.renderDocPage(w, string(content))
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
 }
+```
 
-func (s *FlowServer) setupDocs() {
-    s.router.Mount("/docs", s.docsServer.router)
-}
+### HTML Wrapper
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>noPromises Documentation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="/docs">Home</a>
+        <a href="/docs/guides">Guides</a>
+        <a href="/api-docs">API</a>
+    </nav>
+    <div class="markdown-body">
+        <!-- Content inserted here -->
+    </div>
+</body>
+</html>
 ```
 
 ### Network Visualization
 ```go
-func (s *DocsServer) handleNetworkDiagram(w http.ResponseWriter, r *http.Request) {
-    networkID := chi.URLParam(r, "id")
-    
+func (s *Server) handleNetworkDiagram(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    networkID := vars["id"]
+
     diagram, err := s.mermaidGen.GenerateFlowDiagram(networkID)
     if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
+        http.Error(w, err.Error(), http.StatusNotFound)
         return
     }
-    
-    s.renderDiagram(w, diagram)
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]string{
+        "diagram": diagram,
+    })
 }
 ```
 
-## Usage
+## Integration
 
-### Starting the Server
+### Server Integration
 ```go
-server := NewFlowServer(FlowServerConfig{
-    Port: 8080,
-    DocsConfig: DocsConfig{
-        DocsPath: "./docs",
-        EnableLive: true,
-    },
-})
+func (s *Server) Router() *mux.Router {
+    return s.router
+}
 
-if err := server.Run(); err != nil {
-    log.Fatal(err)
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    s.router.ServeHTTP(w, r)
 }
 ```
 
-### Accessing Documentation
-```bash
-# View documentation
-open http://localhost:8080/docs
+### Debug Logging
+```go
+func (s *Server) logDebug(format string, args ...interface{}) {
+    log.Printf("[DEBUG] "+format, args...)
+}
+```
 
-# View network diagram
-open http://localhost:8080/diagrams/network/flow1
+## Best Practices
 
-# View API documentation
-open http://localhost:8080/api-docs
+### Documentation Organization
+- Keep documentation close to code
+- Use consistent file structure
+- Follow Markdown conventions
+- Include code examples
+
+### Error Handling
+- Provide clear error messages
+- Log debugging information
+- Return appropriate status codes
+- Handle missing files gracefully
+
+### Security
+- Validate file paths
+- Sanitize user input
+- Control access to sensitive docs
+- Log access attempts
+
+### Performance
+- Cache rendered content
+- Optimize large files
+- Handle concurrent requests
+- Monitor resource usage
 ``` 
+</rewritten_file>

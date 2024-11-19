@@ -2,202 +2,179 @@
 
 This document outlines testing patterns for the Flow Server subsystem.
 
-## Unit Tests
+## Documentation Server Tests
 
 ### Server Creation
 ```go
-func TestFlowServer(t *testing.T) {
-    t.Run("creation", func(t *testing.T) {
-        config := ServerConfig{
-            Port: 8080,
-        }
-        
-        server := NewFlowServer(config)
-        assert.NotNil(t, server)
-        assert.Equal(t, 8080, server.port)
+func TestDocsServer(t *testing.T) {
+    // Create test docs directory
+    tmpDir := t.TempDir()
+    require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "api"), 0755))
+    
+    // Create test files
+    require.NoError(t, os.WriteFile(
+        filepath.Join(tmpDir, "test.md"),
+        []byte("# Test Documentation"),
+        0644,
+    ))
+    
+    // Create server
+    srv := NewServer(Config{
+        DocsPath: tmpDir,
     })
+    require.NotNil(t, srv)
 }
 ```
 
-### Process Registry
+### Route Testing
 ```go
-func TestProcessRegistry(t *testing.T) {
-    t.Run("registration", func(t *testing.T) {
-        registry := NewProcessRegistry()
-        
-        err := registry.Register("test", func(config ProcessConfig) (Process, error) {
-            return NewTestProcess(), nil
-        })
-        require.NoError(t, err)
-        
-        factory, exists := registry.Get("test")
-        assert.True(t, exists)
-        assert.NotNil(t, factory)
-    })
-}
-```
-
-### Flow Management
-```go
-func TestFlowManagement(t *testing.T) {
-    t.Run("create flow", func(t *testing.T) {
-        server := NewFlowServer(ServerConfig{})
-        
-        config := FlowConfig{
-            ID: "test-flow",
-            Nodes: map[string]NodeConfig{
-                "proc1": {
-                    Type: "test",
-                    Config: map[string]interface{}{},
-                },
+func TestRoutes(t *testing.T) {
+    srv := setupTestServer(t)
+    
+    tests := []struct {
+        name           string
+        path           string
+        expectedStatus int
+        expectedType   string
+        checkResponse  func(*testing.T, *httptest.ResponseRecorder)
+    }{
+        {
+            name: "serve markdown",
+            path: "/test.md",
+            expectedStatus: http.StatusOK,
+            expectedType: "text/html; charset=utf-8",
+            checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+                assert.Contains(t, w.Body.String(), "<html>")
+                assert.Contains(t, w.Body.String(), "Test Documentation")
             },
-        }
-        
-        err := server.CreateFlow(config)
-        require.NoError(t, err)
-        
-        assert.Equal(t, 1, server.ProcessCount())
-    })
-}
-```
-
-## Integration Tests
-
-### HTTP Endpoints
-```go
-func TestHTTPEndpoints(t *testing.T) {
-    t.Run("create flow", func(t *testing.T) {
-        server := NewTestServer()
-        
-        resp := httptest.NewRecorder()
-        req := httptest.NewRequest("POST", "/api/flows", strings.NewReader(`{
-            "id": "test-flow",
-            "nodes": {
-                "proc1": {
-                    "type": "test",
-                    "config": {}
-                }
+        },
+        {
+            name: "serve swagger",
+            path: "/api/swagger.json",
+            expectedStatus: http.StatusOK,
+            expectedType: "application/json",
+            checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+                assert.Contains(t, w.Body.String(), `"openapi":"3.0.0"`)
+            },
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            req := httptest.NewRequest("GET", tt.path, nil)
+            w := httptest.NewRecorder()
+            
+            srv.ServeHTTP(w, req)
+            
+            assert.Equal(t, tt.expectedStatus, w.Code)
+            assert.Contains(t, w.Header().Get("Content-Type"), tt.expectedType)
+            
+            if tt.checkResponse != nil {
+                tt.checkResponse(t, w)
             }
-        }`))
-        
-        server.ServeHTTP(resp, req)
-        assert.Equal(t, http.StatusCreated, resp.Code)
-    })
+        })
+    }
 }
 ```
 
-### Flow Execution
+### Network Visualization Tests
 ```go
-func TestFlowExecution(t *testing.T) {
-    t.Run("start and stop", func(t *testing.T) {
-        server := NewTestServer()
-        
-        // Create flow
-        config := FlowConfig{
-            ID: "test-flow",
-            Nodes: map[string]NodeConfig{
-                "proc1": {Type: "test"},
+func TestNetworkDiagram(t *testing.T) {
+    srv := setupTestServer(t)
+    
+    // Set test network
+    srv.mermaidGen.SetNetwork("test-flow", map[string]interface{}{
+        "nodes": map[string]interface{}{
+            "reader": map[string]interface{}{
+                "type": "FileReader",
+                "status": "running",
             },
-        }
-        require.NoError(t, server.CreateFlow(config))
-        
-        // Start flow
-        err := server.StartFlow("test-flow")
-        require.NoError(t, err)
-        
-        // Verify status
-        status, err := server.GetFlowStatus("test-flow")
-        require.NoError(t, err)
-        assert.Equal(t, NetworkStatusRunning, status)
-        
-        // Stop flow
-        err = server.StopFlow("test-flow")
-        require.NoError(t, err)
-        
-        // Verify stopped
-        status, err = server.GetFlowStatus("test-flow")
-        require.NoError(t, err)
-        assert.Equal(t, NetworkStatusStopped, status)
+        },
     })
+    
+    // Test diagram generation
+    req := httptest.NewRequest("GET", "/diagrams/network/test-flow", nil)
+    w := httptest.NewRecorder()
+    
+    srv.ServeHTTP(w, req)
+    
+    assert.Equal(t, http.StatusOK, w.Code)
+    assert.Contains(t, w.Body.String(), "reader[FileReader]:::running")
 }
 ```
 
-## Concurrency Tests
-
-### Parallel Operations
+### WebSocket Tests
 ```go
-func TestConcurrentOperations(t *testing.T) {
-    t.Run("parallel flow creation", func(t *testing.T) {
-        server := NewTestServer()
-        
-        var wg sync.WaitGroup
-        for i := 0; i < 10; i++ {
-            wg.Add(1)
-            go func(id int) {
-                defer wg.Done()
-                config := FlowConfig{
-                    ID: fmt.Sprintf("flow-%d", id),
-                    Nodes: map[string]NodeConfig{
-                        "proc1": {Type: "test"},
-                    },
-                }
-                err := server.CreateFlow(config)
-                assert.NoError(t, err)
-            }(i)
-        }
-        wg.Wait()
-        
-        assert.Equal(t, 10, server.ProcessCount())
-    })
+func TestLiveUpdates(t *testing.T) {
+    srv := setupTestServer(t)
+    
+    req := httptest.NewRequest("GET", "/diagrams/network/test-flow/live", nil)
+    w := httptest.NewRecorder()
+    
+    srv.ServeHTTP(w, req)
+    
+    assert.Equal(t, http.StatusSwitchingProtocols, w.Code)
 }
 ```
 
-### Race Condition Tests
+## Test Utilities
+
+### Server Setup
 ```go
-func TestRaceConditions(t *testing.T) {
-    t.Run("concurrent state access", func(t *testing.T) {
-        server := NewTestServer()
-        
-        // Create test flow
-        config := FlowConfig{ID: "test-flow"}
-        require.NoError(t, server.CreateFlow(config))
-        
-        // Concurrent operations
-        var wg sync.WaitGroup
-        for i := 0; i < 100; i++ {
-            wg.Add(1)
-            go func() {
-                defer wg.Done()
-                _, _ = server.GetFlowStatus("test-flow")
-            }()
-        }
-        wg.Wait()
+func setupTestServer(t *testing.T) *Server {
+    tmpDir := t.TempDir()
+    
+    // Create required files
+    setupTestFiles(t, tmpDir)
+    
+    srv := NewServer(Config{
+        DocsPath: tmpDir,
     })
+    srv.SetupRoutes()
+    
+    return srv
+}
+```
+
+### Test File Creation
+```go
+func setupTestFiles(t *testing.T, dir string) {
+    files := map[string]string{
+        "README.md": "# Test Documentation",
+        "api/swagger.json": `{"openapi":"3.0.0"}`,
+        "test.md": "# Test Content",
+    }
+    
+    for path, content := range files {
+        fullPath := filepath.Join(dir, path)
+        require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0755))
+        require.NoError(t, os.WriteFile(fullPath, []byte(content), 0644))
+    }
 }
 ```
 
 ## Best Practices
 
-### Test Setup
-- Use test helpers
-- Clean up resources
-- Isolate tests
-- Handle timeouts
+### Test Organization
+- Group related tests
+- Use table-driven tests
+- Isolate test dependencies
+- Clean up test resources
 
 ### Error Testing
-- Test error cases
-- Verify error messages
-- Check status codes
-- Test cleanup
+- Test missing files
+- Test invalid paths
+- Test malformed content
+- Test error responses
 
-### Concurrency Testing
-- Use race detector
-- Test parallel operations
-- Check state consistency
-- Verify thread safety
+### Content Testing
+- Verify HTML wrapping
+- Check content types
+- Validate JSON responses
+- Test diagram generation
 
 ### Integration Testing
-- Test real HTTP
-- Verify responses
-- Check headers
-- Test timeouts 
+- Test full request flow
+- Verify content serving
+- Check live updates
+- Test error handling

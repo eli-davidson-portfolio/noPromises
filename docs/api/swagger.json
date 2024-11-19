@@ -6,22 +6,125 @@
         "description": "API documentation for noPromises Flow-Based Programming server"
     },
     "paths": {
-        "/api/v1/flows": {
+        "/docs/{path}": {
             "get": {
-                "summary": "List all flows",
+                "summary": "Get documentation content",
+                "parameters": [
+                    {
+                        "name": "path",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Path to documentation file"
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "List of flows",
+                        "description": "HTML wrapped documentation",
+                        "content": {
+                            "text/html": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Documentation not found"
+                    }
+                }
+            }
+        },
+        "/api-docs": {
+            "get": {
+                "summary": "Get Swagger UI",
+                "responses": {
+                    "200": {
+                        "description": "Swagger UI HTML",
+                        "content": {
+                            "text/html": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/swagger.json": {
+            "get": {
+                "summary": "Get OpenAPI specification",
+                "responses": {
+                    "200": {
+                        "description": "OpenAPI specification",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/Flow"
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/diagrams/network/{id}": {
+            "get": {
+                "summary": "Get network diagram",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Network ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Mermaid diagram",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "diagram": {
+                                            "type": "string",
+                                            "description": "Mermaid diagram syntax"
+                                        }
                                     }
                                 }
                             }
                         }
+                    },
+                    "404": {
+                        "description": "Network not found"
+                    }
+                }
+            }
+        },
+        "/diagrams/network/{id}/live": {
+            "get": {
+                "summary": "Get live network updates",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Network ID"
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching to WebSocket protocol"
                     }
                 }
             }
@@ -29,15 +132,22 @@
     },
     "components": {
         "schemas": {
-            "Flow": {
+            "Error": {
                 "type": "object",
                 "properties": {
-                    "id": {
-                        "type": "string"
-                    },
-                    "state": {
-                        "type": "string",
-                        "enum": ["created", "starting", "running", "stopping", "stopped", "error"]
+                    "error": {
+                        "type": "object",
+                        "properties": {
+                            "message": {
+                                "type": "string"
+                            },
+                            "code": {
+                                "type": "string"
+                            },
+                            "details": {
+                                "type": "object"
+                            }
+                        }
                     }
                 }
             }
