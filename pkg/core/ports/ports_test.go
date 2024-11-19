@@ -49,10 +49,12 @@ func TestPort(t *testing.T) {
 		})
 
 		t.Run("output port limits", func(t *testing.T) {
+
 			port := NewOutput[string]("test", "Test port", true)
 			port.SetMaxConnections(1)
 
 			ch1 := make(chan *ip.IP[string])
+
 			ch2 := make(chan *ip.IP[string])
 
 			err1 := Connect(port, ch1)
