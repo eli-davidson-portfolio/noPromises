@@ -2,8 +2,8 @@ package docs
 
 import (
 	"net/http"
-	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -31,9 +31,23 @@ func (s *Server) Router() *mux.Router {
 }
 
 func (s *Server) SetupRoutes() {
+	// API documentation UI and swagger.json
+	s.router.HandleFunc("/api-docs", s.handleSwaggerUI).Methods("GET")
+	s.router.HandleFunc("/api/swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.ServeFile(w, r, filepath.Join(s.docsPath, "api", "swagger.json"))
+	}).Methods("GET")
+
+	// Network visualization endpoints
+	s.router.HandleFunc("/diagrams/network/{id}", s.handleNetworkDiagram).Methods("GET")
+	s.router.HandleFunc("/diagrams/network/{id}/live", s.handleLiveDiagram).Methods("GET")
+
 	// Serve static documentation files with proper content types
 	fileServer := http.FileServer(http.Dir(s.docsPath))
-	s.router.PathPrefix("/docs/").Handler(http.StripPrefix("/docs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.router.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Remove /docs prefix if present (TrimPrefix is safe to use unconditionally)
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/docs")
+
 		// Set content type based on file extension
 		ext := filepath.Ext(r.URL.Path)
 		switch ext {
@@ -46,26 +60,14 @@ func (s *Server) SetupRoutes() {
 		default:
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		}
-		fileServer.ServeHTTP(w, r)
-	})))
 
-	// Serve OpenAPI/Swagger specification
-	s.router.HandleFunc("/api/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		swaggerPath := filepath.Join(s.docsPath, "api", "swagger.json")
-		if _, err := os.Stat(swaggerPath); os.IsNotExist(err) {
-			http.Error(w, "Swagger specification not found", http.StatusNotFound)
-			return
+		// If accessing root, serve README.md
+		if r.URL.Path == "/" || r.URL.Path == "" {
+			r.URL.Path = "/README.md"
 		}
-		http.ServeFile(w, r, swaggerPath)
-	})
 
-	// Network visualization endpoints
-	s.router.HandleFunc("/diagrams/network/{id}", s.handleNetworkDiagram)
-	s.router.HandleFunc("/diagrams/network/{id}/live", s.handleLiveDiagram)
-
-	// API documentation UI
-	s.router.HandleFunc("/api-docs", s.handleSwaggerUI)
+		fileServer.ServeHTTP(w, r)
+	}))
 }
 
 // Handler implementations...

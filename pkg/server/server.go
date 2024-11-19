@@ -96,10 +96,22 @@ func NewServer(config Config) (*Server, error) {
 	s.docsServer.SetupRoutes()
 
 	// Mount docs routes under main router
-	s.router.PathPrefix("/docs/").Handler(s.docsServer.Router())
-	s.router.PathPrefix("/diagrams/").Handler(s.docsServer.Router())
-	s.router.PathPrefix("/api-docs").Handler(s.docsServer.Router())
-	s.router.PathPrefix("/api/swagger.json").Handler(s.docsServer.Router())
+	docsRouter := s.docsServer.Router()
+
+	// API Documentation
+	s.router.PathPrefix("/api-docs").Handler(docsRouter)
+	s.router.PathPrefix("/api/swagger.json").Handler(docsRouter)
+
+	// Network Diagrams
+	s.router.PathPrefix("/diagrams/").Handler(docsRouter)
+
+	// Documentation files
+	s.router.PathPrefix("/docs/").Handler(docsRouter)
+
+	// Root path redirects to docs
+	s.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs/", http.StatusMovedPermanently)
+	})
 
 	s.Handler = s.router
 	return s, nil
