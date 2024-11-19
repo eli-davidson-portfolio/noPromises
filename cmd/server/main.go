@@ -14,11 +14,13 @@ import (
 func main() {
 	// Parse command line flags
 	port := flag.Int("port", 8080, "Server port")
+	docsPath := flag.String("docs", "./docs", "Path to documentation files")
 	flag.Parse()
 
 	// Create server
 	srv, err := server.NewServer(server.Config{
-		Port: *port,
+		Port:     *port,
+		DocsPath: *docsPath,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)

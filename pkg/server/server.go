@@ -9,21 +9,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elleshadow/noPromises/pkg/server/docs"
 	"github.com/gorilla/mux"
 )
 
 // Config holds server configuration
 type Config struct {
-	Port int
+	Port     int
+	DocsPath string
 }
 
 // Server represents the main server component
 type Server struct {
-	config    Config
-	router    *mux.Router
-	flows     *FlowManager
-	processes *ProcessRegistry
-	Handler   http.Handler
+	config     Config
+	router     *mux.Router
+	flows      *FlowManager
+	processes  *ProcessRegistry
+	docsServer *docs.Server
+	Handler    http.Handler
 }
 
 // FlowManager handles flow lifecycle and state management
@@ -81,6 +84,19 @@ func NewServer(config Config) (*Server, error) {
 
 	s.setupRoutes()
 	s.setupMiddleware()
+
+	// Initialize docs server if path is provided
+	if config.DocsPath != "" {
+		s.docsServer = docs.NewServer(docs.Config{
+			DocsPath: config.DocsPath,
+		})
+		s.docsServer.SetupRoutes()
+
+		// Mount docs routes under main router
+		s.router.PathPrefix("/docs/").Handler(s.docsServer.Router())
+		s.router.PathPrefix("/diagrams/").Handler(s.docsServer.Router())
+		s.router.PathPrefix("/api-docs").Handler(s.docsServer.Router())
+	}
 
 	s.Handler = s.router
 	return s, nil

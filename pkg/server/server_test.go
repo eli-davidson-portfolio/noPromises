@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -363,5 +366,67 @@ func TestConcurrentFlowOperations(t *testing.T) {
 		err := json.NewDecoder(statusResp.Body).Decode(&status)
 		require.NoError(t, err)
 		assert.Equal(t, "running", status["data"].(map[string]interface{})["state"])
+	}
+}
+
+func TestServerWithDocs(t *testing.T) {
+	// Create temporary docs directory
+	tmpDir := t.TempDir()
+
+	// Create test documentation file
+	testDoc := filepath.Join(tmpDir, "test.md")
+	err := os.WriteFile(testDoc, []byte("# Test Documentation"), 0644)
+	require.NoError(t, err)
+
+	// Create server with docs configuration
+	srv, err := NewServer(Config{
+		Port:     8080,
+		DocsPath: tmpDir,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, srv.docsServer)
+
+	// Create test server
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name:           "serve markdown file",
+			path:           "/docs/test.md",
+			expectedStatus: http.StatusOK,
+			expectedBody:   "# Test Documentation",
+		},
+		{
+			name:           "handle missing file",
+			path:           "/docs/missing.md",
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "block directory traversal",
+			path:           "/docs/../private.txt",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + tt.path)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
+
+			if tt.expectedBody != "" {
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedBody, string(body))
+			}
+		})
 	}
 }
