@@ -413,37 +413,49 @@ func TestServerWithDocs(t *testing.T) {
 		path           string
 		expectedStatus int
 		expectedType   string
-		expectedBody   string
+		checkResponse  func(t *testing.T, body string)
 	}{
 		{
-			name:           "serve markdown file",
+			name:           "serve_markdown_file",
 			path:           "/docs/test.md",
 			expectedStatus: http.StatusOK,
-			expectedType:   "text/markdown; charset=utf-8",
-			expectedBody:   "# Test Documentation",
+			expectedType:   "text/html; charset=utf-8",
+			checkResponse: func(t *testing.T, body string) {
+				assert.Contains(t, body, "<html>")
+				assert.Contains(t, body, "<div class=\"markdown-body\">")
+				assert.Contains(t, body, "# Test Documentation")
+			},
 		},
 		{
 			name:           "serve swagger json",
 			path:           "/api/swagger.json",
 			expectedStatus: http.StatusOK,
 			expectedType:   "application/json",
-			expectedBody:   `{"openapi":"3.0.0"}`,
+			checkResponse: func(t *testing.T, body string) {
+				assert.Equal(t, `{"openapi":"3.0.0"}`, strings.TrimSpace(body))
+			},
 		},
 		{
 			name:           "serve swagger UI",
 			path:           "/api-docs",
 			expectedStatus: http.StatusOK,
 			expectedType:   "text/html; charset=utf-8",
+			checkResponse: func(t *testing.T, body string) {
+				assert.Contains(t, body, "<html>")
+				assert.Contains(t, body, "swagger-ui")
+			},
 		},
 		{
 			name:           "handle missing file",
 			path:           "/docs/missing.md",
 			expectedStatus: http.StatusNotFound,
+			checkResponse:  nil,
 		},
 		{
 			name:           "block directory traversal",
 			path:           "/docs/../private.txt",
 			expectedStatus: http.StatusNotFound,
+			checkResponse:  nil,
 		},
 	}
 
@@ -458,10 +470,10 @@ func TestServerWithDocs(t *testing.T) {
 				assert.Equal(t, tt.expectedType, resp.Header.Get("Content-Type"), "unexpected content type")
 			}
 
-			if tt.expectedBody != "" {
+			if tt.checkResponse != nil {
 				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedBody, strings.TrimSpace(string(body)), "unexpected body")
+				tt.checkResponse(t, string(body))
 			}
 		})
 	}

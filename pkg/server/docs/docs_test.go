@@ -43,17 +43,22 @@ func TestDocsServer(t *testing.T) {
 		setup          func(*Server)
 		expectedStatus int
 		expectedType   string
-		expectedBody   string
+		checkResponse  func(*testing.T, *httptest.ResponseRecorder)
 	}{
 		{
 			name: "serve static documentation",
-			path: "/docs/test.md",
+			path: "/test.md",
 			setup: func(_ *Server) {
 				// No setup needed for static files
 			},
 			expectedStatus: http.StatusOK,
-			expectedType:   "text/markdown; charset=utf-8",
-			expectedBody:   "# Test Documentation",
+			expectedType:   "text/html; charset=utf-8",
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				bodyStr := w.Body.String()
+				assert.Contains(t, bodyStr, "<html>")
+				assert.Contains(t, bodyStr, "<div class=\"markdown-body\">")
+				assert.Contains(t, bodyStr, "# Test Documentation")
+			},
 		},
 		{
 			name: "serve swagger json",
@@ -63,7 +68,9 @@ func TestDocsServer(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedType:   "application/json",
-			expectedBody:   `{"openapi":"3.0.0"}`,
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.Equal(t, `{"openapi":"3.0.0"}`, strings.TrimSpace(w.Body.String()))
+			},
 		},
 		{
 			name: "generate network diagram",
@@ -91,6 +98,17 @@ func TestDocsServer(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedType:   "application/json",
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				var response struct {
+					Diagram string `json:"diagram"`
+				}
+				err := json.NewDecoder(w.Body).Decode(&response)
+				require.NoError(t, err)
+
+				assert.Contains(t, response.Diagram, "reader[FileReader]:::running")
+				assert.Contains(t, response.Diagram, "writer[FileWriter]:::waiting")
+				assert.Contains(t, response.Diagram, "reader -->|data| writer")
+			},
 		},
 		{
 			name: "serve swagger UI",
@@ -100,6 +118,10 @@ func TestDocsServer(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedType:   "text/html; charset=utf-8",
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.Contains(t, w.Body.String(), "<html>")
+				assert.Contains(t, w.Body.String(), "swagger-ui")
+			},
 		},
 	}
 
@@ -117,20 +139,8 @@ func TestDocsServer(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			assert.Contains(t, w.Header().Get("Content-Type"), tt.expectedType)
 
-			if tt.expectedBody != "" {
-				assert.Equal(t, tt.expectedBody, strings.TrimSpace(w.Body.String()))
-			}
-
-			if tt.path == "/diagrams/network/test-flow" {
-				var response struct {
-					Diagram string `json:"diagram"`
-				}
-				err := json.NewDecoder(w.Body).Decode(&response)
-				require.NoError(t, err)
-
-				assert.Contains(t, response.Diagram, "reader[FileReader]:::running")
-				assert.Contains(t, response.Diagram, "writer[FileWriter]:::waiting")
-				assert.Contains(t, response.Diagram, "reader -->|data| writer")
+			if tt.checkResponse != nil {
+				tt.checkResponse(t, w)
 			}
 		})
 	}
