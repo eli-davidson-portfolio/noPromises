@@ -1,39 +1,21 @@
 package process
 
-import (
-	"context"
-	"sync"
-)
+import "context"
 
-type BaseProcess struct {
-	initialized bool
-	mu          sync.RWMutex
-}
-
-func (p *BaseProcess) Initialize(_ context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.initialized = true
-	return nil
-}
-
-func (p *BaseProcess) Shutdown(_ context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.initialized = false
-	return nil
-}
-
-func (p *BaseProcess) IsInitialized() bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.initialized
-}
-
-// Process is the interface that must be implemented by all processes
+// Process represents a component that can process data
 type Process interface {
-	Initialize(ctx context.Context) error
+	// Name returns the process name
+	Name() string
+
+	// Process starts the main processing loop
 	Process(ctx context.Context) error
+
+	// Initialize prepares the process for execution
+	Initialize(ctx context.Context) error
+
+	// Shutdown cleans up process resources
 	Shutdown(ctx context.Context) error
+
+	// IsInitialized returns whether the process has been initialized
 	IsInitialized() bool
 }

@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/elleshadow/noPromises/pkg/core/ip"
@@ -16,13 +17,13 @@ const (
 )
 
 type Port[T any] struct {
-	name        string
-	description string
-	required    bool
-	portType    PortType
-	channels    []chan *ip.IP[T]
-	maxConns    int
-	mu          sync.RWMutex
+	name           string
+	description    string
+	required       bool
+	portType       PortType
+	channels       []chan *ip.IP[T]
+	maxConnections int
+	mu             sync.RWMutex
 }
 
 func NewInput[T any](name, description string, required bool) *Port[T] {
@@ -32,7 +33,6 @@ func NewInput[T any](name, description string, required bool) *Port[T] {
 		required:    required,
 		portType:    TypeInput,
 		channels:    make([]chan *ip.IP[T], 0),
-		maxConns:    1, // Default to 1 connection
 	}
 }
 
@@ -43,7 +43,6 @@ func NewOutput[T any](name, description string, required bool) *Port[T] {
 		required:    required,
 		portType:    TypeOutput,
 		channels:    make([]chan *ip.IP[T], 0),
-		maxConns:    1, // Default to 1 connection
 	}
 }
 
@@ -66,54 +65,79 @@ func (p *Port[T]) Type() PortType {
 func (p *Port[T]) SetMaxConnections(max int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.maxConns = max
+	p.maxConnections = max
 }
 
-func (p *Port[T]) Connect(ch chan *ip.IP[T]) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.channels) >= p.maxConns {
-		return fmt.Errorf("port %s: maximum connections (%d) exceeded", p.name, p.maxConns)
+func Connect[T any](port *Port[T], ch chan *ip.IP[T]) error {
+	if port == nil {
+		return fmt.Errorf("nil port")
+	}
+	if ch == nil {
+		return fmt.Errorf("nil channel")
 	}
 
-	p.channels = append(p.channels, ch)
+	port.mu.Lock()
+	defer port.mu.Unlock()
+
+	if port.maxConnections > 0 && len(port.channels) >= port.maxConnections {
+		return fmt.Errorf("maximum connections reached")
+	}
+
+	port.channels = append(port.channels, ch)
 	return nil
 }
 
 func (p *Port[T]) Send(ctx context.Context, packet *ip.IP[T]) error {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
+	channels := make([]chan *ip.IP[T], len(p.channels))
+	copy(channels, p.channels)
+	p.mu.RUnlock()
 
-	if len(p.channels) == 0 {
-		return fmt.Errorf("port %s: no connected channels", p.name)
-	}
-
-	// For output ports, send to all connected channels
-	for _, ch := range p.channels {
+	for _, ch := range channels {
 		select {
-		case ch <- packet:
 		case <-ctx.Done():
 			return ctx.Err()
+		case ch <- packet:
 		}
 	}
-
 	return nil
 }
 
 func (p *Port[T]) Receive(ctx context.Context) (*ip.IP[T], error) {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
+	channels := make([]chan *ip.IP[T], len(p.channels))
+	copy(channels, p.channels)
+	p.mu.RUnlock()
 
-	if len(p.channels) == 0 {
-		return nil, fmt.Errorf("port %s: no connected channels", p.name)
+	if len(channels) == 0 {
+		return nil, fmt.Errorf("no channels connected")
 	}
 
-	// For input ports, receive from first connected channel
-	select {
-	case packet := <-p.channels[0]:
-		return packet, nil
-	case <-ctx.Done():
+	// Create cases for select
+	cases := make([]reflect.SelectCase, len(channels)+1)
+	cases[0] = reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(ctx.Done()),
+	}
+	for i, ch := range channels {
+		cases[i+1] = reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(ch),
+		}
+	}
+
+	// Wait for data or context cancellation
+	chosen, value, ok := reflect.Select(cases)
+	if chosen == 0 { // Context done
 		return nil, ctx.Err()
 	}
+	if !ok {
+		return nil, fmt.Errorf("channel closed")
+	}
+
+	packet, ok := value.Interface().(*ip.IP[T])
+	if !ok {
+		return nil, fmt.Errorf("invalid packet type")
+	}
+	return packet, nil
 }
