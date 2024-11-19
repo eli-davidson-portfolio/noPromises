@@ -153,22 +153,27 @@ Response:
 git clone https://github.com/elleshadow/noPromises
 ```
 
-2. Install dependencies
+2. Install git hooks
 ```bash
-make setup
+make install-hooks
 ```
 
-3. Run tests
+3. Run checks (linting and tests)
+```bash
+make check
+```
+
+4. Run tests with race detection
 ```bash
 make test
 ```
 
-4. Build the server
+5. Build the server
 ```bash
 make server-build
 ```
 
-5. Start the server
+6. Start the server
 ```bash
 # Start on default port 8080
 make server-start
@@ -177,7 +182,7 @@ make server-start
 make server-start-port-3000
 ```
 
-6. Stop the server
+7. Stop the server
 ```bash
 make server-stop
 ```
@@ -187,16 +192,18 @@ make server-stop
 | Command | Description |
 |---------|-------------|
 | `make all` | Run all checks and build |
-| `make check` | Run linter and tests |
+| `make install-hooks` | Install git hooks |
+| `make check` | Run linter, tests, and format check |
 | `make lint` | Run golangci-lint |
 | `make test` | Run tests with race detection |
+| `make format-check` | Check code formatting |
 | `make format` | Format code |
 | `make build` | Build all binaries |
 | `make server-build` | Build server binary |
 | `make server-start` | Start server on port 8080 |
 | `make server-start-port-X` | Start server on port X |
 | `make server-stop` | Stop running server |
-| `make clean` | Clean build artifacts |
+| `make clean` | Clean build artifacts and stop server |
 
 ### Example API Usage
 
