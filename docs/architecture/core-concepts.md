@@ -2,144 +2,170 @@
 
 This document outlines the fundamental architectural concepts of our Flow-Based Programming (FBP) implementation in Go.
 
-## Core Components
+## Server Components
 
-### Information Packets (IPs)
-
-IPs are the fundamental unit of data flowing through the network:
-
+### Server Configuration
 ```go
-type IP[T any] struct {
-    Data     T
-    Metadata map[string]any
+type Config struct {
+    Port int
 }
 ```
 
-Key features:
-- Generic type support
-- Metadata storage
-- Thread-safe operations
-- Owner tracking
-
-### Ports
-
-Ports are the connection points between processes:
-
+### Server Structure
 ```go
-type Port[T any] struct {
-    name        string
-    description string
-    required    bool
-    portType    PortType
-    channels    []chan *IP[T]
-    maxConns    int
+type Server struct {
+    config    Config
+    router    *mux.Router
+    flows     *FlowManager
+    processes *ProcessRegistry
+    Handler   http.Handler
 }
 ```
 
-Features:
-- Type-safe connections
-- Connection limits
-- Buffered channels
-- Context-aware operations
-- Support for fan-out (output ports)
-- Support for fan-in (input ports)
-
-### Processes
-
-Processes are the computational units:
-
+### Flow Management
 ```go
+type FlowManager struct {
+    flows map[string]*ManagedFlow
+    mu    sync.RWMutex
+}
+
+type ManagedFlow struct {
+    ID        string                 
+    Config    map[string]interface{} 
+    State     FlowState              
+    StartTime *time.Time             
+    Error     string                 
+}
+
+type FlowState string
+
+const (
+    FlowStateCreated  FlowState = "created"
+    FlowStateStarting FlowState = "starting"
+    FlowStateRunning  FlowState = "running"
+    FlowStateStopping FlowState = "stopping"
+    FlowStateStopped  FlowState = "stopped"
+    FlowStateError    FlowState = "error"
+)
+```
+
+### Process Registry
+```go
+type ProcessRegistry struct {
+    processes map[string]ProcessFactory
+    mu        sync.RWMutex
+}
+
+type ProcessFactory interface {
+    Create(config map[string]interface{}) (Process, error)
+}
+
 type Process interface {
-    Initialize(ctx context.Context) error
-    Process(ctx context.Context) error
-    Shutdown(ctx context.Context) error
-    IsInitialized() bool
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
 }
 ```
 
-Features:
-- Context-aware lifecycle
-- Clean initialization/shutdown
-- State management
-- Error propagation
-- Port management
+## Request Handling
 
-### Network
-
-Networks orchestrate process execution:
-
+### Response Format
 ```go
-type Network struct {
-    processes map[string]Process
-}
-```
-
-Features:
-- Process management
-- Connection management
-- Error handling
-- Context-based control
-- Clean shutdown
-
-## Key Design Patterns
-
-### Process Lifecycle
-1. Initialization
-2. Processing
-3. Shutdown
-
-### Error Handling
-- Context cancellation
-- Process errors
-- Connection errors
-- Cleanup on failure
-
-### Connection Management
-- Type-safe channels
-- Buffered connections
-- Connection limits
-- Fan-out support
-
-### Concurrency Model
-- Process isolation
-- Channel-based communication
-- Context-based cancellation
-- Synchronized state access
-
-## Best Practices
-
-### Process Implementation
-```go
-type CustomProcess struct {
-    process.BaseProcess
-    in  *ports.Port[InputType]
-    out *ports.Port[OutputType]
+// Success response
+{
+    "data": {
+        // Response data
+    }
 }
 
-func (p *CustomProcess) Process(ctx context.Context) error {
-    for {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        default:
-            // Process data
-        }
+// Error response
+{
+    "error": {
+        "message": "Error description"
     }
 }
 ```
 
-### Network Configuration
-```go
-net := network.New()
-net.AddProcess("proc1", NewProcess1())
-net.AddProcess("proc2", NewProcess2())
-net.Connect("proc1", "out", "proc2", "in")
-```
-
-### Error Handling
-```go
-if err := net.Run(ctx); err != nil {
-    // Handle network error
-    // All processes will be properly shut down
+### Flow Configuration
+```json
+{
+    "id": "example-flow",
+    "nodes": {
+        "reader": {
+            "type": "FileReader",
+            "config": {
+                "filename": "input.txt"
+            }
+        }
+    },
+    "edges": []
 }
 ```
+
+## Concurrency Patterns
+
+### Safe State Access
+```go
+// Read access
+s.flows.mu.RLock()
+flow, exists := s.flows.flows[flowID]
+s.flows.mu.RUnlock()
+
+// Write access
+s.flows.mu.Lock()
+s.flows.flows[flowID] = flow
+s.flows.mu.Unlock()
+```
+
+### Background Operations
+```go
+// Start flow in background
+go func() {
+    time.Sleep(50 * time.Millisecond)
+    s.flows.mu.Lock()
+    flow.State = FlowStateRunning
+    s.flows.mu.Unlock()
+}()
+```
+
+### Graceful Shutdown
+```go
+func (s *Server) Start(ctx context.Context) error {
+    srv := &http.Server{
+        Addr:    fmt.Sprintf(":%d", s.config.Port),
+        Handler: s.Handler,
+    }
+
+    go func() {
+        <-ctx.Done()
+        srv.Shutdown(context.Background())
+    }()
+
+    return srv.ListenAndServe()
+}
+```
+
+## Best Practices
+
+### State Management
+- Use mutex protection for shared state
+- Prefer RLock for reads
+- Keep lock durations minimal
+- Copy data for responses when needed
+
+### Error Handling
+- Return appropriate HTTP status codes
+- Provide clear error messages
+- Log errors appropriately
+- Clean up resources on error
+
+### Request Processing
+- Validate input early
+- Use appropriate content types
+- Handle timeouts
+- Support graceful shutdown
+
+### Testing
+- Use table-driven tests
+- Test concurrent operations
+- Verify state transitions
+- Check error conditions

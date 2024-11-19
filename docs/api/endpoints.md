@@ -19,20 +19,9 @@ Content-Type: application/json
             "config": {
                 "filename": "input.txt"
             }
-        },
-        "writer": {
-            "type": "FileWriter",
-            "config": {
-                "filename": "output.txt"
-            }
         }
     },
-    "edges": [
-        {
-            "from": {"node": "reader", "port": "out"},
-            "to": {"node": "writer", "port": "in"}
-        }
-    ]
+    "edges": []
 }
 ```
 
@@ -40,13 +29,71 @@ Content-Type: application/json
 - 201 Created: Flow created successfully
   ```json
   {
-      "id": "example-flow",
-      "status": "created",
-      "created_at": "2024-11-19T10:00:00Z"
+      "data": {
+          "id": "example-flow",
+          "config": {
+              "id": "example-flow",
+              "nodes": {
+                  "reader": {
+                      "type": "FileReader",
+                      "config": {
+                          "filename": "input.txt"
+                      }
+                  }
+              },
+              "edges": []
+          },
+          "state": "created",
+          "started_at": null,
+          "error": ""
+      }
   }
   ```
 - 400 Bad Request: Invalid configuration
-- 409 Conflict: Flow ID already exists
+  ```json
+  {
+      "error": {
+          "message": "invalid process type: InvalidType"
+      }
+  }
+  ```
+- 409 Conflict: Flow already exists
+  ```json
+  {
+      "error": {
+          "message": "flow example-flow already exists"
+      }
+  }
+  ```
+
+### Get Flow
+```http
+GET /api/v1/flows/{id}
+```
+
+**Responses:**
+- 200 OK: Flow found
+  ```json
+  {
+      "data": {
+          "id": "example-flow",
+          "config": {
+              // Flow configuration
+          },
+          "state": "running",
+          "started_at": "2024-01-01T12:00:00Z",
+          "error": ""
+      }
+  }
+  ```
+- 404 Not Found: Flow does not exist
+  ```json
+  {
+      "error": {
+          "message": "flow example-flow not found"
+      }
+  }
+  ```
 
 ### List Flows
 ```http
@@ -56,45 +103,15 @@ GET /api/v1/flows
 **Response:**
 ```json
 {
-    "flows": [
+    "data": [
         {
-            "id": "example-flow",
-            "state": "running",
-            "node_count": 2,
-            "created_at": "2024-11-19T10:00:00Z"
-        }
-    ]
-}
-```
-
-### Get Flow Details
-```http
-GET /api/v1/flows/{id}
-```
-
-**Response:**
-```json
-{
-    "id": "example-flow",
-    "state": "running",
-    "started_at": "2024-11-19T10:00:00Z",
-    "nodes": {
-        "reader": {
-            "type": "FileReader",
+            "id": "flow-1",
             "config": {
-                "filename": "input.txt"
+                // Flow configuration
             },
-            "status": {
-                "state": "running",
-                "messages_processed": 150,
-                "last_active": "2024-11-19T10:05:00Z"
-            }
-        }
-    },
-    "edges": [
-        {
-            "from": {"node": "reader", "port": "out"},
-            "to": {"node": "writer", "port": "in"}
+            "state": "running",
+            "started_at": "2024-01-01T12:00:00Z",
+            "error": ""
         }
     ]
 }
@@ -107,6 +124,15 @@ POST /api/v1/flows/{id}/start
 
 **Responses:**
 - 200 OK: Flow started successfully
+  ```json
+  {
+      "data": {
+          "id": "example-flow",
+          "state": "starting",
+          "started_at": "2024-01-01T12:00:00Z"
+      }
+  }
+  ```
 - 404 Not Found: Flow not found
 - 409 Conflict: Flow already running
 
@@ -117,6 +143,14 @@ POST /api/v1/flows/{id}/stop
 
 **Responses:**
 - 200 OK: Flow stopped successfully
+  ```json
+  {
+      "data": {
+          "id": "example-flow",
+          "state": "stopping"
+      }
+  }
+  ```
 - 404 Not Found: Flow not found
 - 409 Conflict: Flow not running
 
@@ -128,28 +162,32 @@ DELETE /api/v1/flows/{id}
 **Responses:**
 - 204 No Content: Flow deleted successfully
 - 404 Not Found: Flow not found
-- 409 Conflict: Flow currently running
+- 409 Conflict: Cannot delete running flow
 
-### Get Flow Status
-```http
-GET /api/v1/flows/{id}/status
-```
+### Flow States
+The following states are supported:
+- `created`: Initial state after flow creation
+- `starting`: Flow is in the process of starting
+- `running`: Flow is actively running
+- `stopping`: Flow is in the process of stopping
+- `stopped`: Flow has been stopped
+- `error`: Flow encountered an error
 
-**Response:**
+## Error Responses
+All error responses follow the format:
 ```json
 {
-    "id": "example-flow",
-    "state": "running",
-    "started_at": "2024-11-19T10:00:00Z",
-    "nodes": {
-        "reader": {
-            "state": "running",
-            "messages_processed": 150,
-            "last_active": "2024-11-19T10:05:00Z"
-        }
+    "error": {
+        "message": "Human readable error message"
     }
 }
 ```
+
+Common HTTP status codes:
+- 400 Bad Request: Invalid request or configuration
+- 404 Not Found: Resource not found
+- 409 Conflict: Resource state conflict
+- 500 Internal Server Error: Server error
 
 ## Process Discovery
 
@@ -216,31 +254,6 @@ GET /api/v1/processes/{name}
     }
 }
 ```
-
-## Error Responses
-
-All error responses follow the format:
-
-```json
-{
-    "error": {
-        "code": "FLOW_NOT_FOUND",
-        "message": "Flow 'example-flow' not found",
-        "details": {
-            "flow_id": "example-flow"
-        }
-    }
-}
-```
-
-Common error codes:
-- `INVALID_REQUEST`: Malformed request or invalid parameters
-- `FLOW_NOT_FOUND`: Requested flow does not exist
-- `FLOW_EXISTS`: Flow ID already in use
-- `INVALID_STATE`: Invalid flow state for operation
-- `PROCESS_NOT_FOUND`: Process type does not exist
-- `VALIDATION_ERROR`: Configuration validation failed
-- `INTERNAL_ERROR`: Unexpected server error
 
 ## Request Headers
 

@@ -1,156 +1,115 @@
 # Server Design Patterns
 
-This document outlines key patterns for implementing the Flow Server subsystem.
+This document outlines key patterns implemented in the Flow Server subsystem.
 
-## Network Management Patterns
+## Core Components
 
-### Network Lifecycle Management
+### Server Configuration
 ```go
-type NetworkManager struct {
-    networks map[string]*ManagedNetwork
-    mu       sync.RWMutex
-}
-
-type ManagedNetwork struct {
-    Network   *network.Network
-    Status    NetworkStatus
-    StartTime time.Time
-    Config    FlowConfig
+type Config struct {
+    Port int
 }
 ```
 
-### Safe Network Operations
+### Server Structure
 ```go
-func (m *NetworkManager) SafeOperation(id string, op func(*ManagedNetwork) error) error {
-    m.mu.Lock()
-    defer m.mu.Unlock()
-    
-    network, exists := m.networks[id]
-    if !exists {
-        return ErrNetworkNotFound
-    }
-    
-    return op(network)
+type Server struct {
+    config    Config
+    router    *mux.Router
+    flows     *FlowManager
+    processes *ProcessRegistry
+    Handler   http.Handler
 }
 ```
 
-### Network State Transitions
+## Flow Management
+
+### Flow Manager
 ```go
-type NetworkStatus string
+type FlowManager struct {
+    flows map[string]*ManagedFlow
+    mu    sync.RWMutex
+}
+
+type ManagedFlow struct {
+    ID        string                 
+    Config    map[string]interface{} 
+    State     FlowState              
+    StartTime *time.Time             
+    Error     string                 
+}
+```
+
+### Flow States
+```go
+type FlowState string
 
 const (
-    NetworkStatusCreated   NetworkStatus = "created"
-    NetworkStatusStarting  NetworkStatus = "starting"
-    NetworkStatus Running  NetworkStatus = "running"
-    NetworkStatusStopping NetworkStatus = "stopping"
-    NetworkStatusStopped  NetworkStatus = "stopped"
-    NetworkStatusError    NetworkStatus = "error"
+    FlowStateCreated  FlowState = "created"
+    FlowStateStarting FlowState = "starting"
+    FlowStateRunning  FlowState = "running"
+    FlowStateStopping FlowState = "stopping"
+    FlowStateStopped  FlowState = "stopped"
+    FlowStateError    FlowState = "error"
 )
 ```
 
-## Process Registry Patterns
+## Process Registry
 
-### Factory Registration
+### Registry Structure
 ```go
-func (r *ProcessRegistry) Register(name string, factory ProcessFactory) error {
-    r.mu.Lock()
-    defer r.mu.Unlock()
-    
-    if _, exists := r.processes[name]; exists {
-        return ErrProcessTypeExists
+type ProcessRegistry struct {
+    processes map[string]ProcessFactory
+    mu        sync.RWMutex
+}
+
+type ProcessFactory interface {
+    Create(config map[string]interface{}) (Process, error)
+}
+
+type Process interface {
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+}
+```
+
+## Request Handling
+
+### Response Helpers
+```go
+func respondJSON(w http.ResponseWriter, status int, data interface{}) {
+    w.WriteHeader(status)
+    if data != nil {
+        json.NewEncoder(w).Encode(map[string]interface{}{
+            "data": data,
+        })
     }
-    
-    r.processes[name] = factory
+}
+
+func respondError(w http.ResponseWriter, status int, err error) {
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "error": map[string]interface{}{
+            "message": err.Error(),
+        },
+    })
+}
+```
+
+### Flow Validation
+```go
+func validateFlowConfig(config map[string]interface{}) error {
+    if config["id"] == nil {
+        return fmt.Errorf("missing flow id")
+    }
+
+    nodes, ok := config["nodes"].(map[string]interface{})
+    if !ok {
+        return fmt.Errorf("invalid nodes configuration")
+    }
+
+    // Validate node configurations...
     return nil
-}
-```
-
-### Process Configuration Validation
-```go
-type ProcessConfig struct {
-    Type       string                 `json:"type"`
-    Config     map[string]interface{} `json:"config"`
-    Validation func() error
-}
-
-func (c *ProcessConfig) Validate() error {
-    if c.Type == "" {
-        return ErrMissingProcessType
-    }
-    if c.Validation != nil {
-        return c.Validation()
-    }
-    return nil
-}
-```
-
-## Request Handling Patterns
-
-### Request Validation
-```go
-func validateFlowConfig(config FlowConfig) error {
-    if config.ID == "" {
-        return ErrMissingFlowID
-    }
-    
-    if len(config.Nodes) == 0 {
-        return ErrNoNodes
-    }
-    
-    return validateConnections(config.Edges)
-}
-```
-
-### Response Formatting
-```go
-type APIResponse struct {
-    Success bool        `json:"success"`
-    Data    interface{} `json:"data,omitempty"`
-    Error   string      `json:"error,omitempty"`
-}
-
-func NewSuccessResponse(data interface{}) APIResponse {
-    return APIResponse{
-        Success: true,
-        Data:    data,
-    }
-}
-```
-
-## Error Handling Patterns
-
-### Error Types
-```go
-var (
-    ErrNetworkNotFound   = errors.New("network not found")
-    ErrNetworkExists     = errors.New("network already exists")
-    ErrInvalidState      = errors.New("invalid network state")
-    ErrProcessTypeExists = errors.New("process type already registered")
-)
-```
-
-### Error Recovery
-```go
-func (s *FlowServer) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
-    var config FlowConfig
-    if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
-        s.sendError(w, http.StatusBadRequest, err)
-        return
-    }
-    
-    if err := s.createFlow(r.Context(), config); err != nil {
-        switch {
-        case errors.Is(err, ErrNetworkExists):
-            s.sendError(w, http.StatusConflict, err)
-        case errors.Is(err, ErrInvalidConfig):
-            s.sendError(w, http.StatusBadRequest, err)
-        default:
-            s.sendError(w, http.StatusInternalServerError, err)
-        }
-        return
-    }
-    
-    s.sendResponse(w, http.StatusCreated, NewSuccessResponse(config))
 }
 ```
 
@@ -158,58 +117,67 @@ func (s *FlowServer) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 
 ### Safe State Access
 ```go
-func (s *FlowServer) GetNetworkStatus(id string) (NetworkStatus, error) {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-    
-    network, exists := s.networks[id]
-    if !exists {
-        return "", ErrNetworkNotFound
-    }
-    
-    return network.Status, nil
-}
+// Read access
+s.flows.mu.RLock()
+flow, exists := s.flows.flows[flowID]
+s.flows.mu.RUnlock()
+
+// Write access
+s.flows.mu.Lock()
+s.flows.flows[flowID] = flow
+s.flows.mu.Unlock()
 ```
 
-### Background Tasks
+### Background Operations
 ```go
-func (s *FlowServer) startMonitoring(ctx context.Context) {
-    ticker := time.NewTicker(monitorInterval)
-    defer ticker.Stop()
-    
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            s.checkNetworks()
-        }
+// Start flow in background
+go func() {
+    time.Sleep(50 * time.Millisecond)
+    s.flows.mu.Lock()
+    flow.State = FlowStateRunning
+    s.flows.mu.Unlock()
+}()
+```
+
+### Graceful Shutdown
+```go
+func (s *Server) Start(ctx context.Context) error {
+    srv := &http.Server{
+        Addr:    fmt.Sprintf(":%d", s.config.Port),
+        Handler: s.Handler,
     }
+
+    go func() {
+        <-ctx.Done()
+        srv.Shutdown(context.Background())
+    }()
+
+    return srv.ListenAndServe()
 }
 ```
 
 ## Best Practices
 
-### Request Handling
-- Validate all input
-- Use appropriate HTTP status codes
-- Provide detailed error messages
-- Handle timeouts
-
 ### State Management
-- Use mutex protection
-- Atomic state transitions
-- Safe concurrent access
-- Clean resource cleanup
+- Use mutex protection for shared state
+- Prefer RLock for reads
+- Keep lock durations minimal
+- Copy data for responses when needed
 
 ### Error Handling
-- Proper error types
-- Consistent error responses
-- Recovery procedures
-- Error logging
+- Return appropriate HTTP status codes
+- Provide clear error messages
+- Log errors appropriately
+- Clean up resources on error
+
+### Request Processing
+- Validate input early
+- Use appropriate content types
+- Handle timeouts
+- Support graceful shutdown
 
 ### Testing
+- Use table-driven tests
 - Test concurrent operations
 - Verify state transitions
 - Check error conditions
-- Test cleanup procedures 
