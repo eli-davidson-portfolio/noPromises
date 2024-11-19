@@ -4,163 +4,142 @@ noPromises is a strict implementation of J. Paul Morrison's Flow-Based Programmi
 
 ## Core Components
 
-### 1. Information Packets (IPs)
+### 1. Server
 ```go
-type IP[T any] struct {
-    Data     T
-    Metadata map[string]any
+type Server struct {
+    config    Config
+    router    *mux.Router
+    flows     *FlowManager
+    processes *ProcessRegistry
+    Handler   http.Handler
 }
 ```
-- Type-safe data transport
-- Metadata support
-- Thread-safe operations
+- RESTful API
+- Flow management
+- Process registry
+- Middleware support
 
-### 2. Ports
+### 2. Flow Management
 ```go
-type Port[T any] struct {
-    name        string
-    description string
-    required    bool
-    portType    PortType
-    channels    []chan *IP[T]
-    maxConns    int
+type FlowManager struct {
+    flows map[string]*ManagedFlow
+    mu    sync.RWMutex
 }
-```
-- Type-safe connections
-- Connection limits
-- Buffered channels
-- Fan-out support
 
-### 3. Processes
-```go
-type Process interface {
-    Initialize(ctx context.Context) error
-    Process(ctx context.Context) error
-    Shutdown(ctx context.Context) error
-    IsInitialized() bool
+type ManagedFlow struct {
+    ID        string
+    Config    map[string]interface{}
+    State     FlowState
+    StartTime *time.Time
+    Error     string
 }
 ```
-- Context-aware lifecycle
-- Clean initialization/shutdown
-- State management
-- Error propagation
-
-### 4. Networks
-```go
-type Network struct {
-    processes map[string]Process
-}
-```
-- Process management
-- Connection orchestration
+- Flow lifecycle management
+- State transitions
+- Concurrent access
 - Error handling
-- Clean shutdown
+
+### 3. Process Registry
+```go
+type ProcessRegistry struct {
+    processes map[string]ProcessFactory
+    mu        sync.RWMutex
+}
+
+type ProcessFactory interface {
+    Create(config map[string]interface{}) (Process, error)
+}
+
+type Process interface {
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+}
+```
+- Process type registration
+- Factory pattern
+- Configuration validation
+- Context-aware lifecycle
+
+## API Endpoints
+
+### Flow Management
+- `POST /api/v1/flows` - Create flow
+- `GET /api/v1/flows` - List flows
+- `GET /api/v1/flows/{id}` - Get flow details
+- `DELETE /api/v1/flows/{id}` - Delete flow
+- `POST /api/v1/flows/{id}/start` - Start flow
+- `POST /api/v1/flows/{id}/stop` - Stop flow
+- `GET /api/v1/flows/{id}/status` - Get flow status
+
+### Flow States
+- `created`: Initial state after flow creation
+- `starting`: Flow is in the process of starting
+- `running`: Flow is actively running
+- `stopping`: Flow is in the process of stopping
+- `stopped`: Flow has been stopped
+- `error`: Flow encountered an error
 
 ## Example Usage
 
-### Creating a Process
-```go
-type CustomProcess struct {
-    process.BaseProcess
-    in  *ports.Port[string]
-    out *ports.Port[string]
-}
+### Creating a Flow
+```http
+POST /api/v1/flows
+Content-Type: application/json
 
-func (p *CustomProcess) Process(ctx context.Context) error {
-    for {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        default:
-            packet, err := p.in.Receive(ctx)
-            if err != nil {
-                return err
-            }
-            // Process data...
-            result := ip.New[string](processedData)
-            if err := p.out.Send(ctx, result); err != nil {
-                return err
+{
+    "id": "example-flow",
+    "nodes": {
+        "reader": {
+            "type": "FileReader",
+            "config": {
+                "filename": "input.txt"
             }
         }
+    },
+    "edges": []
+}
+```
+
+### Starting a Flow
+```http
+POST /api/v1/flows/example-flow/start
+```
+
+### Getting Flow Status
+```http
+GET /api/v1/flows/example-flow/status
+
+Response:
+{
+    "data": {
+        "id": "example-flow",
+        "state": "running",
+        "started_at": "2024-01-01T12:00:00Z"
     }
 }
 ```
 
-### Building a Network
-```go
-net := network.New()
-
-// Add processes
-net.AddProcess("proc1", NewProcess1())
-net.AddProcess("proc2", NewProcess2())
-
-// Connect processes
-net.Connect("proc1", "out", "proc2", "in")
-
-// Run network
-ctx := context.Background()
-if err := net.Run(ctx); err != nil {
-    // Handle error
-}
-```
-
-## Server Components (Coming Soon)
-
-### Flow Server
-```go
-type FlowServer struct {
-    networks map[string]*Network    // Network management
-    registry *ProcessRegistry       // Process type registry
-    router   *chi.Router           // HTTP routing
-}
-```
-
-### Process Registry
-```go
-type ProcessRegistry struct {
-    processes map[string]ProcessFactory
-}
-
-type ProcessFactory func(config ProcessConfig) (Process, error)
-```
-
-### Flow Configuration
-```go
-type FlowConfig struct {
-    ID      string                 `json:"id"`
-    Nodes   map[string]NodeConfig  `json:"nodes"`
-    Edges   []EdgeConfig          `json:"edges"`
-}
-```
-
-### HTTP API (Planned)
-- `POST /api/flows` - Create flow
-- `GET /api/flows` - List flows
-- `GET /api/flows/{id}` - Get flow details
-- `DELETE /api/flows/{id}` - Delete flow
-- `POST /api/flows/{id}/start` - Start flow
-- `POST /api/flows/{id}/stop` - Stop flow
-- `GET /api/processes` - List available processes
-
 ## Current Status
 
 ### Implemented
-- ✅ Core IP system
-- ✅ Port management
-- ✅ Process lifecycle
-- ✅ Network orchestration
-- ✅ Basic error handling
-- ✅ Context support
-- ✅ Type safety
+- ✅ Basic server implementation
+- ✅ Flow management
+- ✅ Process registry
+- ✅ RESTful API
+- ✅ Flow lifecycle
+- ✅ Error handling
+- ✅ Concurrent operations
+- ✅ Request validation
 
-### In Progress
-- 🚧 Flow server implementation
-- 🚧 Process registry
-- 🚧 HTTP API
-- 🚧 Flow configuration
-- 🚧 Advanced error handling
+### Coming Soon
+- 🚧 Core FBP components (IPs, Ports, Networks)
+- 🚧 Process implementations
+- 🚧 Flow visualization
 - 🚧 Monitoring system
+- 🚧 Advanced error handling
 - 🚧 Performance optimizations
+- 🚧 Documentation server
+- 🚧 Network visualization
 
 ## Development Requirements
 - Go 1.21+
@@ -184,6 +163,73 @@ make setup
 make test
 ```
 
+4. Build the server
+```bash
+make server-build
+```
+
+5. Start the server
+```bash
+# Start on default port 8080
+make server-start
+
+# Or start on custom port
+make server-start-port-3000
+```
+
+6. Stop the server
+```bash
+make server-stop
+```
+
+### Make Commands
+
+| Command | Description |
+|---------|-------------|
+| `make all` | Run all checks and build |
+| `make check` | Run linter and tests |
+| `make lint` | Run golangci-lint |
+| `make test` | Run tests with race detection |
+| `make format` | Format code |
+| `make build` | Build all binaries |
+| `make server-build` | Build server binary |
+| `make server-start` | Start server on port 8080 |
+| `make server-start-port-X` | Start server on port X |
+| `make server-stop` | Stop running server |
+| `make clean` | Clean build artifacts |
+
+### Example API Usage
+
+After starting the server:
+
+1. Create a flow:
+```bash
+curl -X POST http://localhost:8080/api/v1/flows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "example-flow",
+    "nodes": {
+      "reader": {
+        "type": "FileReader",
+        "config": {
+          "filename": "input.txt"
+        }
+      }
+    },
+    "edges": []
+  }'
+```
+
+2. Start the flow:
+```bash
+curl -X POST http://localhost:8080/api/v1/flows/example-flow/start
+```
+
+3. Check flow status:
+```bash
+curl http://localhost:8080/api/v1/flows/example-flow/status
+```
+
 ## Contributing
 
 See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
@@ -192,61 +238,34 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
 MIT License - See [LICENSE](LICENSE) for details
 
-## Network Visualization
+## Planned Features
 
-Networks can be automatically visualized using Mermaid diagrams:
-
-### Simple Pipeline
+### Network Visualization (Coming Soon)
 ```mermaid
 graph LR
-    reader[FileReader]
-    transform[UpperCase]
-    writer[FileWriter]
+    reader[FileReader]:::running
+    transform[UpperCase]:::error
+    writer[FileWriter]:::waiting
     reader -->|out| transform
     transform -->|out| writer
-```
-
-### Fan-Out Pattern
-```mermaid
-graph LR
-    source[Source]
-    worker1[Worker]
-    worker2[Worker]
-    worker3[Worker]
-    source -->|out| worker1
-    source -->|out| worker2
-    source -->|out| worker3
-```
-
-### Status Visualization
-```mermaid
-graph LR
-    input[FileReader]:::running
-    process[WordCounter]:::error
-    output[FileWriter]:::waiting
-    
-    input -->|out| process
-    process -->|out| output
     
     classDef running fill:#d4edda,stroke:#28a745;
     classDef error fill:#f8d7da,stroke:#dc3545;
     classDef waiting fill:#fff3cd,stroke:#ffc107;
 ```
 
-## Documentation Server
-
-The Flow Server includes a built-in documentation server:
-
+### Documentation Server (Planned)
 ```bash
 # Start server
 go run cmd/server/main.go
 
-# View documentation
+# View documentation (coming soon)
 open http://localhost:8080/docs
 
-# View network visualizations
+# View network visualizations (coming soon)
 open http://localhost:8080/diagrams/network/flow1
 
-# View API documentation
+# View API documentation (coming soon)
 open http://localhost:8080/api-docs
 ```
+
