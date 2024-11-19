@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>noPromises - Flow-Based Programming</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>noPromises</h1>
+            <p>Classical Flow-Based Programming in Go</p>
+        </header>
+
+        <nav class="main-nav">
+            <div class="nav-section">
+                <h2>Documentation</h2>
+                <ul>
+                    <li><a href="/docs/">Documentation Home</a></li>
+                    <li><a href="/api-docs">API Documentation</a></li>
+                </ul>
+            </div>
+
+            <div class="nav-section">
+                <h2>Flow Management</h2>
+                <div class="flow-controls">
+                    <button class="btn primary" hx-get="/api/v1/flows" 
+                            hx-trigger="click" 
+                            hx-target="#flow-list">
+                        Refresh Flows
+                    </button>
+                    <button class="btn" onclick="showNewFlowModal()">
+                        Create New Flow
+                    </button>
+                </div>
+                <div id="flow-list" class="flow-list">
+                    <!-- Flows will be loaded here -->
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <h2>Network Visualization</h2>
+                <div id="network-viz">
+                    <p>Select a flow to view its network diagram</p>
+                </div>
+            </div>
+        </nav>
+
+        <!-- New Flow Modal -->
+        <div id="new-flow-modal" class="modal">
+            <div class="modal-content">
+                <h2>Create New Flow</h2>
+                <form hx-post="/api/v1/flows" 
+                      hx-target="#flow-list" 
+                      hx-swap="beforeend">
+                    <div class="form-group">
+                        <label for="flow-id">Flow ID:</label>
+                        <input type="text" id="flow-id" name="id" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="flow-config">Configuration (JSON):</label>
+                        <textarea id="flow-config" name="config" rows="10"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" onclick="hideNewFlowModal()">Cancel</button>
+                        <button type="submit" class="primary">Create</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/main.js"></script>
+</body>
+</html> 

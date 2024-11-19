@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/elleshadow/noPromises/internal/server/web"
 	"github.com/elleshadow/noPromises/pkg/server/docs"
 	"github.com/gorilla/mux"
 )
@@ -21,12 +25,12 @@ type Config struct {
 
 // Server represents the main server component
 type Server struct {
-	config     Config
-	router     *mux.Router
-	flows      *FlowManager
-	processes  *ProcessRegistry
-	docsServer *docs.Server
-	Handler    http.Handler
+	config    Config
+	router    *mux.Router
+	flows     *FlowManager
+	processes *ProcessRegistry
+	webServer *web.Server
+	Handler   http.Handler
 }
 
 // FlowManager handles flow lifecycle and state management
@@ -75,43 +79,37 @@ type Process interface {
 
 // NewServer creates a new server instance
 func NewServer(config Config) (*Server, error) {
-	if config.DocsPath == "" {
-		config.DocsPath = "docs"
+	// Verify docs directory exists
+	if _, err := os.Stat(config.DocsPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("documentation path does not exist: %s", config.DocsPath)
 	}
+
+	// Verify required files exist
+	requiredFiles := []string{
+		"README.md",
+		"api/swagger.json",
+	}
+	for _, file := range requiredFiles {
+		path := filepath.Join(config.DocsPath, file)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return nil, fmt.Errorf("required file missing: %s", path)
+		}
+	}
+
+	flowManager := newFlowManager()
 
 	s := &Server{
 		config:    config,
 		router:    mux.NewRouter(),
-		flows:     newFlowManager(),
+		flows:     flowManager,
 		processes: newProcessRegistry(),
+		webServer: web.NewServer(
+			web.WithFlowManager(flowManager),
+		),
 	}
 
 	s.setupRoutes()
 	s.setupMiddleware()
-
-	// Initialize docs server
-	s.docsServer = docs.NewServer(docs.Config{
-		DocsPath: config.DocsPath,
-	})
-	s.docsServer.SetupRoutes()
-
-	// Mount docs routes under main router
-	docsRouter := s.docsServer.Router()
-
-	// API Documentation
-	s.router.PathPrefix("/api-docs").Handler(docsRouter)
-	s.router.PathPrefix("/api/swagger.json").Handler(docsRouter)
-
-	// Network Diagrams
-	s.router.PathPrefix("/diagrams/").Handler(docsRouter)
-
-	// Documentation files
-	s.router.PathPrefix("/docs/").Handler(docsRouter)
-
-	// Root path redirects to docs
-	s.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/docs/", http.StatusMovedPermanently)
-	})
 
 	s.Handler = s.router
 	return s, nil
@@ -131,9 +129,18 @@ func newProcessRegistry() *ProcessRegistry {
 
 // setupRoutes configures API routes
 func (s *Server) setupRoutes() {
-	api := s.router.PathPrefix("/api/v1").Subrouter()
+	// Configure docs server with correct path
+	docsServer := docs.NewServer(docs.Config{
+		DocsPath: s.config.DocsPath,
+	})
+	docsServer.SetupRoutes()
 
-	// Flow management endpoints
+	// Mount docs server and API docs
+	s.router.PathPrefix("/docs/").Handler(http.StripPrefix("/docs/", docsServer.Router()))
+	s.router.HandleFunc("/api-docs", docsServer.HandleSwaggerUI)
+
+	// API routes
+	api := s.router.PathPrefix("/api/v1").Subrouter()
 	api.HandleFunc("/flows", s.handleCreateFlow).Methods(http.MethodPost)
 	api.HandleFunc("/flows", s.handleListFlows).Methods(http.MethodGet)
 	api.HandleFunc("/flows/{id}", s.handleGetFlow).Methods(http.MethodGet)
@@ -141,13 +148,27 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/flows/{id}/start", s.handleStartFlow).Methods(http.MethodPost)
 	api.HandleFunc("/flows/{id}/stop", s.handleStopFlow).Methods(http.MethodPost)
 	api.HandleFunc("/flows/{id}/status", s.handleGetFlowStatus).Methods(http.MethodGet)
+
+	// Static files - handle before the catch-all route
+	staticDir := filepath.Join("web", "static")
+	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
+		staticDir = filepath.Join(s.config.DocsPath, "static")
+	}
+	staticHandler := http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir)))
+	s.router.PathPrefix("/static/").Handler(staticHandler)
+
+	// Web interface (must be last as it's the catch-all)
+	s.router.PathPrefix("/").Handler(s.webServer)
 }
 
 // setupMiddleware configures middleware
 func (s *Server) setupMiddleware() {
 	s.router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
+			// Only set JSON content type for API routes
+			if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+				w.Header().Set("Content-Type", "application/json")
+			}
 			next.ServeHTTP(w, r)
 		})
 	})
@@ -178,35 +199,37 @@ func respondError(w http.ResponseWriter, status int, err error) {
 
 // Flow management handlers
 func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
-	var flowConfig map[string]interface{}
+	var flowConfig struct {
+		ID     string                 `json:"id"`
+		Config map[string]interface{} `json:"config"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&flowConfig); err != nil {
 		respondError(w, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
 
 	// Validate flow configuration
-	if err := s.validateFlowConfig(flowConfig); err != nil {
+	if err := s.validateFlowConfig(flowConfig.Config); err != nil {
 		respondError(w, http.StatusBadRequest, err)
 		return
 	}
 
-	flowID := flowConfig["id"].(string)
 	s.flows.mu.Lock()
 	defer s.flows.mu.Unlock()
 
 	// Check if flow already exists
-	if _, exists := s.flows.flows[flowID]; exists {
-		respondError(w, http.StatusConflict, fmt.Errorf("flow %s already exists", flowID))
+	if _, exists := s.flows.flows[flowConfig.ID]; exists {
+		respondError(w, http.StatusConflict, fmt.Errorf("flow %s already exists", flowConfig.ID))
 		return
 	}
 
 	// Create new flow
 	flow := &ManagedFlow{
-		ID:     flowID,
-		Config: flowConfig,
+		ID:     flowConfig.ID,
+		Config: flowConfig.Config,
 		State:  FlowStateCreated,
 	}
-	s.flows.flows[flowID] = flow
+	s.flows.flows[flowConfig.ID] = flow
 
 	respondJSON(w, http.StatusCreated, flow)
 }
@@ -259,9 +282,6 @@ func (s *Server) handleStartFlow(w http.ResponseWriter, r *http.Request) {
 	flow.State = FlowStateStarting
 	now := time.Now()
 	flow.StartTime = &now
-
-	// Create a copy of the flow for the response
-	flowCopy := *flow
 	s.flows.mu.Unlock()
 
 	// Start flow in background
@@ -272,7 +292,7 @@ func (s *Server) handleStartFlow(w http.ResponseWriter, r *http.Request) {
 		s.flows.mu.Unlock()
 	}()
 
-	respondJSON(w, http.StatusOK, flowCopy)
+	respondJSON(w, http.StatusOK, flow)
 }
 
 func (s *Server) handleStopFlow(w http.ResponseWriter, r *http.Request) {
@@ -289,6 +309,7 @@ func (s *Server) handleStopFlow(w http.ResponseWriter, r *http.Request) {
 
 	if flow.State != FlowStateRunning {
 		s.flows.mu.Unlock()
+
 		respondError(w, http.StatusConflict, fmt.Errorf("flow %s is not running", flowID))
 		return
 	}
@@ -349,10 +370,6 @@ func (s *Server) handleGetFlowStatus(w http.ResponseWriter, r *http.Request) {
 
 // Validation helpers
 func (s *Server) validateFlowConfig(config map[string]interface{}) error {
-	if config["id"] == nil {
-		return fmt.Errorf("missing flow id")
-	}
-
 	nodes, ok := config["nodes"].(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("invalid nodes configuration")
@@ -384,6 +401,33 @@ func (s *Server) isValidProcessType(processType string) bool {
 	return exists
 }
 
+// ServeHTTP implements the http.Handler interface
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.Handler.ServeHTTP(w, r)
+}
+
+// RegisterProcessType registers a new process type
+func (s *Server) RegisterProcessType(name string, factory ProcessFactory) {
+	s.processes.mu.Lock()
+	defer s.processes.mu.Unlock()
+	s.processes.processes[name] = factory
+}
+
+// Make FlowManager implement web.FlowManager interface
+func (fm *FlowManager) List() []web.ManagedFlow {
+	fm.mu.RLock()
+	defer fm.mu.RUnlock()
+
+	flows := make([]web.ManagedFlow, 0, len(fm.flows))
+	for _, flow := range fm.flows {
+		flows = append(flows, web.ManagedFlow{
+			ID:     flow.ID,
+			Status: string(flow.State),
+		})
+	}
+	return flows
+}
+
 // Start starts the server
 func (s *Server) Start(ctx context.Context) error {
 	addr := fmt.Sprintf(":%d", s.config.Port)
@@ -392,6 +436,7 @@ func (s *Server) Start(ctx context.Context) error {
 		Handler: s.Handler,
 	}
 
+	// Handle graceful shutdown
 	go func() {
 		<-ctx.Done()
 		if err := srv.Shutdown(context.Background()); err != nil {
@@ -399,12 +444,6 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}()
 
+	log.Printf("Server starting on http://localhost:%d", s.config.Port)
 	return srv.ListenAndServe()
-}
-
-// RegisterProcessType registers a new process type
-func (s *Server) RegisterProcessType(name string, factory ProcessFactory) {
-	s.processes.mu.Lock()
-	defer s.processes.mu.Unlock()
-	s.processes.processes[name] = factory
 }
