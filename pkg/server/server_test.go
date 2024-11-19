@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,8 +38,17 @@ func (f *MockFileReaderFactory) Create(_ map[string]interface{}) (Process, error
 }
 
 func NewTestServer(t *testing.T) *TestServer {
+	// Create temporary docs directory for testing
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "test.md"),
+		[]byte("# Test Documentation"),
+		0644,
+	))
+
 	server, err := NewServer(Config{
-		Port: 0, // Random port for testing
+		Port:     0, // Random port for testing
+		DocsPath: tmpDir,
 	})
 	require.NoError(t, err)
 
@@ -373,14 +383,22 @@ func TestServerWithDocs(t *testing.T) {
 	// Create temporary docs directory
 	tmpDir := t.TempDir()
 
-	// Create test documentation file
-	testDoc := filepath.Join(tmpDir, "test.md")
-	err := os.WriteFile(testDoc, []byte("# Test Documentation"), 0644)
-	require.NoError(t, err)
+	// Create test documentation structure
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "api"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "test.md"),
+		[]byte("# Test Documentation"),
+		0644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "api", "swagger.json"),
+		[]byte(`{"openapi":"3.0.0"}`),
+		0644,
+	))
 
 	// Create server with docs configuration
 	srv, err := NewServer(Config{
-		Port:     8080,
+		Port:     0,
 		DocsPath: tmpDir,
 	})
 	require.NoError(t, err)
@@ -394,13 +412,28 @@ func TestServerWithDocs(t *testing.T) {
 		name           string
 		path           string
 		expectedStatus int
+		expectedType   string
 		expectedBody   string
 	}{
 		{
 			name:           "serve markdown file",
 			path:           "/docs/test.md",
 			expectedStatus: http.StatusOK,
+			expectedType:   "text/markdown; charset=utf-8",
 			expectedBody:   "# Test Documentation",
+		},
+		{
+			name:           "serve swagger json",
+			path:           "/api/swagger.json",
+			expectedStatus: http.StatusOK,
+			expectedType:   "application/json",
+			expectedBody:   `{"openapi":"3.0.0"}`,
+		},
+		{
+			name:           "serve swagger UI",
+			path:           "/api-docs",
+			expectedStatus: http.StatusOK,
+			expectedType:   "text/html; charset=utf-8",
 		},
 		{
 			name:           "handle missing file",
@@ -420,12 +453,15 @@ func TestServerWithDocs(t *testing.T) {
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
-			assert.Equal(t, tt.expectedStatus, resp.StatusCode)
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode, "unexpected status code")
+			if tt.expectedType != "" {
+				assert.Equal(t, tt.expectedType, resp.Header.Get("Content-Type"), "unexpected content type")
+			}
 
 			if tt.expectedBody != "" {
 				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectedBody, string(body))
+				assert.Equal(t, tt.expectedBody, strings.TrimSpace(string(body)), "unexpected body")
 			}
 		})
 	}

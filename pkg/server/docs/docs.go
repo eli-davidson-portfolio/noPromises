@@ -2,6 +2,7 @@ package docs
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/gorilla/mux"
@@ -48,11 +49,22 @@ func (s *Server) SetupRoutes() {
 		fileServer.ServeHTTP(w, r)
 	})))
 
+	// Serve OpenAPI/Swagger specification
+	s.router.HandleFunc("/api/swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		swaggerPath := filepath.Join(s.docsPath, "api", "swagger.json")
+		if _, err := os.Stat(swaggerPath); os.IsNotExist(err) {
+			http.Error(w, "Swagger specification not found", http.StatusNotFound)
+			return
+		}
+		http.ServeFile(w, r, swaggerPath)
+	})
+
 	// Network visualization endpoints
 	s.router.HandleFunc("/diagrams/network/{id}", s.handleNetworkDiagram)
 	s.router.HandleFunc("/diagrams/network/{id}/live", s.handleLiveDiagram)
 
-	// API documentation
+	// API documentation UI
 	s.router.HandleFunc("/api-docs", s.handleSwaggerUI)
 }
 

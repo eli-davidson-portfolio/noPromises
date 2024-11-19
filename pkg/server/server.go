@@ -75,6 +75,10 @@ type Process interface {
 
 // NewServer creates a new server instance
 func NewServer(config Config) (*Server, error) {
+	if config.DocsPath == "" {
+		config.DocsPath = "docs"
+	}
+
 	s := &Server{
 		config:    config,
 		router:    mux.NewRouter(),
@@ -85,18 +89,17 @@ func NewServer(config Config) (*Server, error) {
 	s.setupRoutes()
 	s.setupMiddleware()
 
-	// Initialize docs server if path is provided
-	if config.DocsPath != "" {
-		s.docsServer = docs.NewServer(docs.Config{
-			DocsPath: config.DocsPath,
-		})
-		s.docsServer.SetupRoutes()
+	// Initialize docs server
+	s.docsServer = docs.NewServer(docs.Config{
+		DocsPath: config.DocsPath,
+	})
+	s.docsServer.SetupRoutes()
 
-		// Mount docs routes under main router
-		s.router.PathPrefix("/docs/").Handler(s.docsServer.Router())
-		s.router.PathPrefix("/diagrams/").Handler(s.docsServer.Router())
-		s.router.PathPrefix("/api-docs").Handler(s.docsServer.Router())
-	}
+	// Mount docs routes under main router
+	s.router.PathPrefix("/docs/").Handler(s.docsServer.Router())
+	s.router.PathPrefix("/diagrams/").Handler(s.docsServer.Router())
+	s.router.PathPrefix("/api-docs").Handler(s.docsServer.Router())
+	s.router.PathPrefix("/api/swagger.json").Handler(s.docsServer.Router())
 
 	s.Handler = s.router
 	return s, nil

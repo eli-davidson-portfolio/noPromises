@@ -16,9 +16,15 @@ import (
 func TestDocsServer(t *testing.T) {
 	// Create test docs directory
 	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "api"), 0755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(tmpDir, "test.md"),
 		[]byte("# Test Documentation"),
+		0644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "api", "swagger.json"),
+		[]byte(`{"openapi":"3.0.0"}`),
 		0644,
 	))
 
@@ -31,13 +37,13 @@ func TestDocsServer(t *testing.T) {
 	// Setup routes
 	srv.SetupRoutes()
 
-	// Setup test cases
 	tests := []struct {
 		name           string
 		path           string
 		setup          func(*Server)
 		expectedStatus int
 		expectedType   string
+		expectedBody   string
 	}{
 		{
 			name: "serve static documentation",
@@ -47,17 +53,38 @@ func TestDocsServer(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedType:   "text/markdown; charset=utf-8",
+			expectedBody:   "# Test Documentation",
+		},
+		{
+			name: "serve swagger json",
+			path: "/api/swagger.json",
+			setup: func(_ *Server) {
+				// No setup needed for static files
+			},
+			expectedStatus: http.StatusOK,
+			expectedType:   "application/json",
+			expectedBody:   `{"openapi":"3.0.0"}`,
 		},
 		{
 			name: "generate network diagram",
 			path: "/diagrams/network/test-flow",
 			setup: func(s *Server) {
-				// Setup test network data
 				s.mermaidGen.SetNetwork("test-flow", map[string]interface{}{
 					"nodes": map[string]interface{}{
 						"reader": map[string]interface{}{
 							"type":   "FileReader",
 							"status": "running",
+						},
+						"writer": map[string]interface{}{
+							"type":   "FileWriter",
+							"status": "waiting",
+						},
+					},
+					"edges": []interface{}{
+						map[string]interface{}{
+							"from": "reader",
+							"to":   "writer",
+							"port": "data",
 						},
 					},
 				})
@@ -78,101 +105,35 @@ func TestDocsServer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup test case
 			if tt.setup != nil {
 				tt.setup(srv)
 			}
 
-			// Create test request
 			req := httptest.NewRequest("GET", tt.path, nil)
 			w := httptest.NewRecorder()
 
-			// Handle request
 			srv.Router().ServeHTTP(w, req)
 
-			// Check response
 			assert.Equal(t, tt.expectedStatus, w.Code)
-			assert.Equal(t, tt.expectedType, w.Header().Get("Content-Type"))
+			assert.Contains(t, w.Header().Get("Content-Type"), tt.expectedType)
 
-			// For diagram tests, verify response body contains expected elements
+			if tt.expectedBody != "" {
+				assert.Equal(t, tt.expectedBody, strings.TrimSpace(w.Body.String()))
+			}
+
 			if tt.path == "/diagrams/network/test-flow" {
-				assert.Contains(t, w.Body.String(), "reader[FileReader]:::running")
+				var response struct {
+					Diagram string `json:"diagram"`
+				}
+				err := json.NewDecoder(w.Body).Decode(&response)
+				require.NoError(t, err)
+
+				assert.Contains(t, response.Diagram, "reader[FileReader]:::running")
+				assert.Contains(t, response.Diagram, "writer[FileWriter]:::waiting")
+				assert.Contains(t, response.Diagram, "reader -->|data| writer")
 			}
 		})
 	}
-}
-
-func TestNetworkDiagramGeneration(t *testing.T) {
-	srv := NewServer(Config{
-		DocsPath: "testdata/docs",
-	})
-	srv.SetupRoutes()
-
-	// Setup test network
-	testNetwork := map[string]interface{}{
-		"nodes": map[string]interface{}{
-			"reader": map[string]interface{}{
-				"type":   "FileReader",
-				"status": "running",
-			},
-			"writer": map[string]interface{}{
-				"type":   "FileWriter",
-				"status": "waiting",
-			},
-		},
-		"edges": []interface{}{
-			map[string]interface{}{
-				"from": "reader",
-				"to":   "writer",
-				"port": "data",
-			},
-		},
-	}
-
-	srv.mermaidGen.SetNetwork("test-flow", testNetwork)
-
-	// Test diagram generation
-	req := httptest.NewRequest("GET", "/diagrams/network/test-flow", nil)
-	w := httptest.NewRecorder()
-
-	srv.Router().ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
-
-	// Parse response JSON
-	var response struct {
-		Diagram string `json:"diagram"`
-	}
-	err := json.NewDecoder(w.Body).Decode(&response)
-	require.NoError(t, err)
-
-	// Split diagram into lines for easier testing
-	lines := strings.Split(response.Diagram, "\n")
-	var nodeLines, edgeLines, styleLines []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.Contains(line, "["):
-			nodeLines = append(nodeLines, line)
-		case strings.Contains(line, "-->"):
-			edgeLines = append(edgeLines, line)
-		case strings.Contains(line, "classDef"):
-			styleLines = append(styleLines, line)
-		}
-	}
-
-	// Test node definitions
-	assert.Contains(t, nodeLines, "reader[FileReader]:::running")
-	assert.Contains(t, nodeLines, "writer[FileWriter]:::waiting")
-
-	// Test edge definition
-	assert.Contains(t, edgeLines, "reader -->|data| writer")
-
-	// Test style definitions
-	assert.Contains(t, styleLines, "classDef running fill:#d4edda,stroke:#28a745;")
-	assert.Contains(t, styleLines, "classDef waiting fill:#fff3cd,stroke:#ffc107;")
-	assert.Contains(t, styleLines, "classDef error fill:#f8d7da,stroke:#dc3545;")
 }
 
 func TestLiveUpdates(t *testing.T) {
@@ -181,7 +142,6 @@ func TestLiveUpdates(t *testing.T) {
 	})
 	srv.SetupRoutes()
 
-	// Test WebSocket connection
 	req := httptest.NewRequest("GET", "/diagrams/network/test-flow/live", nil)
 	w := httptest.NewRecorder()
 

@@ -14,7 +14,7 @@ import (
 func main() {
 	// Parse command line flags
 	port := flag.Int("port", 8080, "Server port")
-	docsPath := flag.String("docs", "./docs", "Path to documentation files")
+	docsPath := flag.String("docs", "", "Path to documentation files (default: ./docs)")
 	flag.Parse()
 
 	// Create server
