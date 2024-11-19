@@ -1,13 +1,9 @@
 # noPromises Documentation
 
-## Getting Started
-- [Server Setup Guide](guides/server-setup.md)
-- [Core Concepts](architecture/core-concepts.md)
+Welcome to the noPromises documentation. This is the main entry point for all documentation.
 
-## Architecture
-- [Server Configuration](architecture/subsystems/server-config.md)
-- [Documentation Server](architecture/subsystems/docs-server.md)
+## Sections
 
-## API Reference
-- [OpenAPI Documentation](/api-docs)
-- [Network Diagrams](/diagrams/network) 
+- [Getting Started](guides/getting-started.md)
+- [API Documentation](api/endpoints.md)
+- [Architecture](architecture/core-concepts.md)

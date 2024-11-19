@@ -73,6 +73,51 @@ func TestDocsServer(t *testing.T) {
 			},
 		},
 		{
+			name: "serve swagger UI",
+			path: "/api-docs",
+			setup: func(_ *Server) {
+				// No setup needed for Swagger UI
+			},
+			expectedStatus: http.StatusOK,
+			expectedType:   "text/html; charset=utf-8",
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				bodyStr := w.Body.String()
+				assert.Contains(t, bodyStr, "<html>")
+				assert.Contains(t, bodyStr, "swagger-ui")
+				assert.Contains(t, bodyStr, "/docs/api/swagger.json") // Check for updated swagger.json path
+			},
+		},
+		{
+			name: "serve root documentation",
+			path: "/",
+			setup: func(s *Server) {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(s.docsPath, "README.md"),
+					[]byte("# Root Documentation"),
+					0644,
+				))
+			},
+			expectedStatus: http.StatusOK,
+			expectedType:   "text/html; charset=utf-8",
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				bodyStr := w.Body.String()
+				assert.Contains(t, bodyStr, "<html>")
+				assert.Contains(t, bodyStr, "# Root Documentation")
+			},
+		},
+		{
+			name: "handle non-existent file",
+			path: "/non-existent.md",
+			setup: func(_ *Server) {
+				// No setup needed
+			},
+			expectedStatus: http.StatusNotFound,
+			expectedType:   "text/plain; charset=utf-8",
+			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
+				assert.Contains(t, w.Body.String(), "Documentation not found")
+			},
+		},
+		{
 			name: "generate network diagram",
 			path: "/diagrams/network/test-flow",
 			setup: func(s *Server) {
@@ -111,16 +156,19 @@ func TestDocsServer(t *testing.T) {
 			},
 		},
 		{
-			name: "serve swagger UI",
-			path: "/api-docs",
-			setup: func(_ *Server) {
-				// No setup needed for Swagger UI
+			name: "serve docs through ServeHTTP",
+			path: "/test-serve-http.md",
+			setup: func(s *Server) {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(s.docsPath, "test-serve-http.md"),
+					[]byte("# ServeHTTP Test"),
+					0644,
+				))
 			},
 			expectedStatus: http.StatusOK,
 			expectedType:   "text/html; charset=utf-8",
 			checkResponse: func(t *testing.T, w *httptest.ResponseRecorder) {
-				assert.Contains(t, w.Body.String(), "<html>")
-				assert.Contains(t, w.Body.String(), "swagger-ui")
+				assert.Contains(t, w.Body.String(), "ServeHTTP Test")
 			},
 		},
 	}
@@ -158,4 +206,29 @@ func TestLiveUpdates(t *testing.T) {
 	srv.Router().ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusSwitchingProtocols, w.Code)
+}
+
+func TestServerServeHTTP(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := NewServer(Config{
+		DocsPath: tmpDir,
+	})
+	srv.SetupRoutes()
+
+	// Create test file
+	testContent := "# Test Content"
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "test.md"),
+		[]byte(testContent),
+		0644,
+	))
+
+	// Test request
+	req := httptest.NewRequest("GET", "/test.md", nil)
+	w := httptest.NewRecorder()
+
+	srv.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), testContent)
 }

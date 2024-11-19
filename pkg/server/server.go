@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/elleshadow/noPromises/internal/server/web"
+	"github.com/elleshadow/noPromises/pkg/server/docs"
 	"github.com/gorilla/mux"
 )
 
@@ -78,6 +79,23 @@ type Process interface {
 
 // NewServer creates a new server instance
 func NewServer(config Config) (*Server, error) {
+	// Verify docs directory exists
+	if _, err := os.Stat(config.DocsPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("documentation path does not exist: %s", config.DocsPath)
+	}
+
+	// Verify required files exist
+	requiredFiles := []string{
+		"README.md",
+		"api/swagger.json",
+	}
+	for _, file := range requiredFiles {
+		path := filepath.Join(config.DocsPath, file)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return nil, fmt.Errorf("required file missing: %s", path)
+		}
+	}
+
 	flowManager := newFlowManager()
 
 	s := &Server{
@@ -111,6 +129,16 @@ func newProcessRegistry() *ProcessRegistry {
 
 // setupRoutes configures API routes
 func (s *Server) setupRoutes() {
+	// Configure docs server with correct path
+	docsServer := docs.NewServer(docs.Config{
+		DocsPath: s.config.DocsPath,
+	})
+	docsServer.SetupRoutes()
+
+	// Mount docs server and API docs
+	s.router.PathPrefix("/docs/").Handler(http.StripPrefix("/docs/", docsServer.Router()))
+	s.router.HandleFunc("/api-docs", docsServer.HandleSwaggerUI)
+
 	// API routes
 	api := s.router.PathPrefix("/api/v1").Subrouter()
 	api.HandleFunc("/flows", s.handleCreateFlow).Methods(http.MethodPost)
