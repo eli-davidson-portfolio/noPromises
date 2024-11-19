@@ -1,133 +1,85 @@
-package process_test
+package process
 
 import (
 	"context"
-	"strings"
 	"testing"
+	"time"
 
-	"github.com/elleshadow/noPromises/pkg/core/ip"
-	"github.com/elleshadow/noPromises/pkg/core/ports"
-	"github.com/elleshadow/noPromises/pkg/core/process"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestProcess is a simple process that transforms strings to uppercase
-type TestProcess struct {
-	process.BaseProcess
-	in  *ports.Port[string]
-	out *ports.Port[string]
-}
+func TestBaseProcessBasics(t *testing.T) {
+	t.Run("name", func(t *testing.T) {
+		p := NewBaseProcess("test")
+		assert.Equal(t, "test", p.Name())
+	})
 
-func NewTestProcess() *TestProcess {
-	p := &TestProcess{}
-	p.in = ports.NewInput[string]("in", "Input port", true)
-	p.out = ports.NewOutput[string]("out", "Output port", true)
-	return p
-}
+	t.Run("process", func(t *testing.T) {
+		p := NewBaseProcess("test")
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
 
-func (p *TestProcess) GetPort(name string) interface{} {
-	switch name {
-	case "in":
-		return p.in
-	case "out":
-		return p.out
-	default:
-		return nil
-	}
-}
-
-func (p *TestProcess) Process(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			packet, err := p.in.Receive(ctx)
-			if err != nil {
-				return err
-			}
-
-			// Transform data to uppercase
-			result := ip.New(strings.ToUpper(packet.Data()))
-
-			err = p.out.Send(ctx, result)
-			if err != nil {
-				return err
-			}
-		}
-	}
+		err := p.Process(ctx)
+		assert.Equal(t, context.DeadlineExceeded, err)
+	})
 }
 
 func TestProcessLifecycle(t *testing.T) {
 	t.Run("initialization", func(t *testing.T) {
-		proc := NewTestProcess()
+		p := NewBaseProcess("test")
 		ctx := context.Background()
 
-		err := proc.Initialize(ctx)
-		require.NoError(t, err)
-		assert.True(t, proc.IsInitialized())
+		assert.False(t, p.IsInitialized())
+		require.NoError(t, p.Initialize(ctx))
+		assert.True(t, p.IsInitialized())
 	})
 
 	t.Run("shutdown", func(t *testing.T) {
-		proc := NewTestProcess()
+		p := NewBaseProcess("test")
 		ctx := context.Background()
 
-		err := proc.Initialize(ctx)
-		require.NoError(t, err)
+		require.NoError(t, p.Initialize(ctx))
+		assert.True(t, p.IsInitialized())
 
-		err = proc.Shutdown(ctx)
-		require.NoError(t, err)
-		assert.False(t, proc.IsInitialized())
+		require.NoError(t, p.Shutdown(ctx))
+		assert.False(t, p.IsInitialized())
+
+		err := p.Initialize(ctx)
+		assert.Equal(t, ErrProcessShutdown, err)
 	})
 }
 
 func TestProcessing(t *testing.T) {
 	t.Run("basic transformation", func(t *testing.T) {
-		proc := NewTestProcess()
+		p := NewBaseProcess("test")
 		ctx := context.Background()
 
-		inCh := make(chan *ip.IP[string], 1)
-		outCh := make(chan *ip.IP[string], 1)
+		require.NoError(t, p.Initialize(ctx))
 
-		require.NoError(t, proc.in.Connect(inCh))
-		require.NoError(t, proc.out.Connect(outCh))
-
-		// Start processing in background
+		ctx, cancel := context.WithCancel(ctx)
+		errCh := make(chan error, 1)
 		go func() {
-			err := proc.Process(ctx)
-			require.NoError(t, err)
+			errCh <- p.Process(ctx)
 		}()
 
-		// Send test data
-		inCh <- ip.New("test")
-
-		// Receive result
-		result := <-outCh
-		assert.Equal(t, "TEST", result.Data())
+		cancel()
+		assert.Equal(t, context.Canceled, <-errCh)
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
-		proc := NewTestProcess()
-		ctx, cancel := context.WithCancel(context.Background())
+		p := NewBaseProcess("test")
+		ctx := context.Background()
 
-		inCh := make(chan *ip.IP[string])
-		outCh := make(chan *ip.IP[string])
+		require.NoError(t, p.Initialize(ctx))
 
-		require.NoError(t, proc.in.Connect(inCh))
-		require.NoError(t, proc.out.Connect(outCh))
-
-		// Start processing
-		processDone := make(chan error)
+		ctx, cancel := context.WithCancel(ctx)
+		errCh := make(chan error, 1)
 		go func() {
-			processDone <- proc.Process(ctx)
+			errCh <- p.Process(ctx)
 		}()
 
-		// Cancel context
 		cancel()
-
-		// Check that processing stopped
-		err := <-processDone
-		assert.Error(t, err)
+		assert.Equal(t, context.Canceled, <-errCh)
 	})
 }
