@@ -9,21 +9,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elleshadow/noPromises/pkg/server/docs"
 	"github.com/gorilla/mux"
 )
 
 // Config holds server configuration
 type Config struct {
-	Port int
+	Port     int
+	DocsPath string
 }
 
 // Server represents the main server component
 type Server struct {
-	config    Config
-	router    *mux.Router
-	flows     *FlowManager
-	processes *ProcessRegistry
-	Handler   http.Handler
+	config     Config
+	router     *mux.Router
+	flows      *FlowManager
+	processes  *ProcessRegistry
+	docsServer *docs.Server
+	Handler    http.Handler
 }
 
 // FlowManager handles flow lifecycle and state management
@@ -72,6 +75,10 @@ type Process interface {
 
 // NewServer creates a new server instance
 func NewServer(config Config) (*Server, error) {
+	if config.DocsPath == "" {
+		config.DocsPath = "docs"
+	}
+
 	s := &Server{
 		config:    config,
 		router:    mux.NewRouter(),
@@ -81,6 +88,30 @@ func NewServer(config Config) (*Server, error) {
 
 	s.setupRoutes()
 	s.setupMiddleware()
+
+	// Initialize docs server
+	s.docsServer = docs.NewServer(docs.Config{
+		DocsPath: config.DocsPath,
+	})
+	s.docsServer.SetupRoutes()
+
+	// Mount docs routes under main router
+	docsRouter := s.docsServer.Router()
+
+	// API Documentation
+	s.router.PathPrefix("/api-docs").Handler(docsRouter)
+	s.router.PathPrefix("/api/swagger.json").Handler(docsRouter)
+
+	// Network Diagrams
+	s.router.PathPrefix("/diagrams/").Handler(docsRouter)
+
+	// Documentation files
+	s.router.PathPrefix("/docs/").Handler(docsRouter)
+
+	// Root path redirects to docs
+	s.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs/", http.StatusMovedPermanently)
+	})
 
 	s.Handler = s.router
 	return s, nil

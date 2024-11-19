@@ -5,8 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,8 +38,17 @@ func (f *MockFileReaderFactory) Create(_ map[string]interface{}) (Process, error
 }
 
 func NewTestServer(t *testing.T) *TestServer {
+	// Create temporary docs directory for testing
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "test.md"),
+		[]byte("# Test Documentation"),
+		0644,
+	))
+
 	server, err := NewServer(Config{
-		Port: 0, // Random port for testing
+		Port:     0, // Random port for testing
+		DocsPath: tmpDir,
 	})
 	require.NoError(t, err)
 
@@ -363,5 +376,93 @@ func TestConcurrentFlowOperations(t *testing.T) {
 		err := json.NewDecoder(statusResp.Body).Decode(&status)
 		require.NoError(t, err)
 		assert.Equal(t, "running", status["data"].(map[string]interface{})["state"])
+	}
+}
+
+func TestServerWithDocs(t *testing.T) {
+	// Create temporary docs directory
+	tmpDir := t.TempDir()
+
+	// Create test documentation structure
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "api"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "test.md"),
+		[]byte("# Test Documentation"),
+		0644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(tmpDir, "api", "swagger.json"),
+		[]byte(`{"openapi":"3.0.0"}`),
+		0644,
+	))
+
+	// Create server with docs configuration
+	srv, err := NewServer(Config{
+		Port:     0,
+		DocsPath: tmpDir,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, srv.docsServer)
+
+	// Create test server
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedType   string
+		expectedBody   string
+	}{
+		{
+			name:           "serve markdown file",
+			path:           "/docs/test.md",
+			expectedStatus: http.StatusOK,
+			expectedType:   "text/markdown; charset=utf-8",
+			expectedBody:   "# Test Documentation",
+		},
+		{
+			name:           "serve swagger json",
+			path:           "/api/swagger.json",
+			expectedStatus: http.StatusOK,
+			expectedType:   "application/json",
+			expectedBody:   `{"openapi":"3.0.0"}`,
+		},
+		{
+			name:           "serve swagger UI",
+			path:           "/api-docs",
+			expectedStatus: http.StatusOK,
+			expectedType:   "text/html; charset=utf-8",
+		},
+		{
+			name:           "handle missing file",
+			path:           "/docs/missing.md",
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "block directory traversal",
+			path:           "/docs/../private.txt",
+			expectedStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := http.Get(ts.URL + tt.path)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.expectedStatus, resp.StatusCode, "unexpected status code")
+			if tt.expectedType != "" {
+				assert.Equal(t, tt.expectedType, resp.Header.Get("Content-Type"), "unexpected content type")
+			}
+
+			if tt.expectedBody != "" {
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedBody, strings.TrimSpace(string(body)), "unexpected body")
+			}
+		})
 	}
 }

@@ -51,12 +51,6 @@ func (s *DocsServer) setupRoutes() {
 - Status indicators
 - Zoom and pan
 
-### API Documentation
-- OpenAPI/Swagger UI
-- Interactive testing
-- Example requests
-- Response schemas
-
 ## Integration
 
 ### Flow Server Integration

@@ -18,6 +18,7 @@ type Server struct {
 - Flow management
 - Process registry
 - Middleware support
+- Documentation server
 
 ### 2. Flow Management
 ```go
@@ -59,6 +60,62 @@ type Process interface {
 - Factory pattern
 - Configuration validation
 - Context-aware lifecycle
+
+## Documentation
+
+### Viewing Documentation
+Once the server is running, documentation is available at:
+
+```bash
+# View documentation home
+open http://localhost:8080/docs
+
+# View API documentation
+open http://localhost:8080/api-docs
+
+# View network diagrams
+open http://localhost:8080/diagrams/network/{flow-id}
+
+# View live network updates
+open http://localhost:8080/diagrams/network/{flow-id}/live
+```
+
+### Documentation Structure
+```
+docs/
+├── api/              # API documentation
+│   ├── endpoints.md  # API endpoint details
+│   └── schemas.md    # JSON schemas
+├── architecture/     # Architecture documentation
+│   ├── core-concepts.md
+│   └── subsystems/
+│       ├── server.md
+│       └── docs-server.md
+├── guides/          # User guides
+│   ├── getting-started.md
+│   └── best-practices.md
+└── README.md        # Documentation home
+```
+
+### Modifying Documentation
+1. Documentation is written in Markdown
+2. Files are served directly from the docs directory
+3. Live updates for network diagrams
+4. Mermaid diagram support
+
+Example Markdown file:
+```markdown
+# Component Documentation
+
+## Overview
+Component description...
+
+## Diagram
+```mermaid
+graph LR
+    A[Process A] --> B[Process B]
+```
+```
 
 ## API Endpoints
 
@@ -130,16 +187,17 @@ Response:
 - ✅ Error handling
 - ✅ Concurrent operations
 - ✅ Request validation
+- ✅ Documentation server
+- ✅ Network visualization
 
 ### Coming Soon
 - 🚧 Core FBP components (IPs, Ports, Networks)
 - 🚧 Process implementations
-- 🚧 Flow visualization
 - 🚧 Monitoring system
 - 🚧 Advanced error handling
 - 🚧 Performance optimizations
-- 🚧 Documentation server
-- 🚧 Network visualization
+- 🚧 Live documentation updates
+- 🚧 WebSocket support
 
 ## Development Requirements
 - Go 1.21+
@@ -153,31 +211,36 @@ Response:
 git clone https://github.com/elleshadow/noPromises
 ```
 
-2. Install dependencies
+2. Install git hooks
 ```bash
-make setup
+make install-hooks
 ```
 
-3. Run tests
+3. Run checks (linting and tests)
+```bash
+make check
+```
+
+4. Run tests with race detection
 ```bash
 make test
 ```
 
-4. Build the server
+5. Build the server
 ```bash
 make server-build
 ```
 
-5. Start the server
+6. Start the server with documentation
 ```bash
 # Start on default port 8080
 make server-start
 
-# Or start on custom port
-make server-start-port-3000
+# Or start on custom port with docs
+make server-start-port-3000 DOCS_PATH=./docs
 ```
 
-6. Stop the server
+7. Stop the server
 ```bash
 make server-stop
 ```
@@ -187,48 +250,18 @@ make server-stop
 | Command | Description |
 |---------|-------------|
 | `make all` | Run all checks and build |
-| `make check` | Run linter and tests |
+| `make install-hooks` | Install git hooks |
+| `make check` | Run linter, tests, and format check |
 | `make lint` | Run golangci-lint |
 | `make test` | Run tests with race detection |
+| `make format-check` | Check code formatting |
 | `make format` | Format code |
 | `make build` | Build all binaries |
 | `make server-build` | Build server binary |
 | `make server-start` | Start server on port 8080 |
 | `make server-start-port-X` | Start server on port X |
 | `make server-stop` | Stop running server |
-| `make clean` | Clean build artifacts |
-
-### Example API Usage
-
-After starting the server:
-
-1. Create a flow:
-```bash
-curl -X POST http://localhost:8080/api/v1/flows \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "example-flow",
-    "nodes": {
-      "reader": {
-        "type": "FileReader",
-        "config": {
-          "filename": "input.txt"
-        }
-      }
-    },
-    "edges": []
-  }'
-```
-
-2. Start the flow:
-```bash
-curl -X POST http://localhost:8080/api/v1/flows/example-flow/start
-```
-
-3. Check flow status:
-```bash
-curl http://localhost:8080/api/v1/flows/example-flow/status
-```
+| `make clean` | Clean build artifacts and stop server |
 
 ## Contributing
 
@@ -237,35 +270,4 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details
-
-## Planned Features
-
-### Network Visualization (Coming Soon)
-```mermaid
-graph LR
-    reader[FileReader]:::running
-    transform[UpperCase]:::error
-    writer[FileWriter]:::waiting
-    reader -->|out| transform
-    transform -->|out| writer
-    
-    classDef running fill:#d4edda,stroke:#28a745;
-    classDef error fill:#f8d7da,stroke:#dc3545;
-    classDef waiting fill:#fff3cd,stroke:#ffc107;
-```
-
-### Documentation Server (Planned)
-```bash
-# Start server
-go run cmd/server/main.go
-
-# View documentation (coming soon)
-open http://localhost:8080/docs
-
-# View network visualizations (coming soon)
-open http://localhost:8080/diagrams/network/flow1
-
-# View API documentation (coming soon)
-open http://localhost:8080/api-docs
-```
 
