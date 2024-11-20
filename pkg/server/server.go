@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/elleshadow/noPromises/internal/server/web"
+	"github.com/elleshadow/noPromises/pkg/db"
 	"github.com/elleshadow/noPromises/pkg/server/docs"
 	"github.com/gorilla/mux"
 )
@@ -21,11 +22,13 @@ import (
 type Config struct {
 	Port     int
 	DocsPath string
+	DBPath   string
 }
 
 // Server represents the main server component
 type Server struct {
 	config    Config
+	db        *db.SQLiteDB
 	router    *mux.Router
 	flows     *FlowManager
 	processes *ProcessRegistry
@@ -96,10 +99,20 @@ func NewServer(config Config) (*Server, error) {
 		}
 	}
 
+	if config.DBPath == "" {
+		config.DBPath = "noPromises.db"
+	}
+
+	db, err := db.NewSQLiteDB(config.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
 	flowManager := newFlowManager()
 
 	s := &Server{
 		config:    config,
+		db:        db,
 		router:    mux.NewRouter(),
 		flows:     flowManager,
 		processes: newProcessRegistry(),
@@ -439,11 +452,16 @@ func (s *Server) Start(ctx context.Context) error {
 	// Handle graceful shutdown
 	go func() {
 		<-ctx.Done()
-		if err := srv.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down server: %v", err)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Error during server shutdown: %v", err)
 		}
 	}()
 
 	log.Printf("Server starting on http://localhost:%d", s.config.Port)
-	return srv.ListenAndServe()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }

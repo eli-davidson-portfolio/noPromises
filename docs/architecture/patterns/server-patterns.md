@@ -293,3 +293,42 @@ func (s *Server) Start(ctx context.Context) error {
 
 ### HTML Wrapper
 - Document HTML wrapper patterns
+
+## Database Integration Patterns
+
+### Database Initialization
+```go
+func initDatabase(config Config) (*db.SQLiteDB, error) {
+    if config.DBPath == "" {
+        config.DBPath = "noPromises.db"
+    }
+
+    db, err := db.NewSQLiteDB(config.DBPath)
+    if err != nil {
+        return nil, fmt.Errorf("failed to initialize database: %w", err)
+    }
+
+    return db, nil
+}
+```
+
+### Resource Management
+```go
+type Server struct {
+    config    Config
+    db        *db.SQLiteDB
+    router    *mux.Router
+    flows     *FlowManager
+    docs      *docs.Server
+    Handler   http.Handler
+}
+
+// Ensure proper cleanup
+func (s *Server) Shutdown(ctx context.Context) error {
+    if err := s.db.Close(); err != nil {
+        return fmt.Errorf("database shutdown error: %w", err)
+    }
+    // ... other cleanup
+    return nil
+}
+```

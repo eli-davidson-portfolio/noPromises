@@ -178,3 +178,45 @@ func setupTestFiles(t *testing.T, dir string) {
 - Verify content serving
 - Check live updates
 - Test error handling
+
+## Database Testing
+
+### Test Setup
+```go
+func setupTestDB(t *testing.T) *db.SQLiteDB {
+    tmpDir := t.TempDir()
+    dbPath := filepath.Join(tmpDir, "test.db")
+
+    db, err := db.NewSQLiteDB(dbPath)
+    require.NoError(t, err)
+    require.NotNil(t, db)
+
+    t.Cleanup(func() {
+        db.Close()
+        os.Remove(dbPath)
+        os.Remove(dbPath + "-shm") // Remove WAL files
+        os.Remove(dbPath + "-wal")
+    })
+
+    return db
+}
+```
+
+### Database Tests
+```go
+func TestDatabaseOperations(t *testing.T) {
+    db := setupTestDB(t)
+
+    // Test WAL mode
+    var journalMode string
+    err := db.DB().QueryRow("PRAGMA journal_mode").Scan(&journalMode)
+    require.NoError(t, err)
+    assert.Equal(t, "wal", journalMode)
+
+    // Test foreign keys
+    var foreignKeys int
+    err = db.DB().QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys)
+    require.NoError(t, err)
+    assert.Equal(t, 1, foreignKeys)
+}
+```

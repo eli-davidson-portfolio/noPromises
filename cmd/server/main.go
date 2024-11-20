@@ -32,6 +32,7 @@ func main() {
 	srv, err := server.NewServer(server.Config{
 		Port:     *port,
 		DocsPath: absDocsPath,
+		DBPath:   "noPromises.db",
 	})
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)

@@ -11,7 +11,7 @@ func main() {
 	// Create new server
 	srv, err := server.NewServer(server.Config{
 		Port:     8080,
-		DocsPath: "./docs", // Optional: for documentation
+		DocsPath: "./docs", // DBPath:   "noPromises.db",
 	})
 	if err != nil {
 		log.Fatal(err)

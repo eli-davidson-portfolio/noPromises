@@ -12,6 +12,12 @@ This documentation describes the architecture of the noPromises Flow-Based Progr
 - Request handling
 - Error management
 
+### Database System
+- SQLite persistence
+- WAL mode for concurrency
+- Foreign key constraints
+- Connection management
+
 ### Documentation Server
 - Markdown rendering
 - API documentation (Swagger/OpenAPI)

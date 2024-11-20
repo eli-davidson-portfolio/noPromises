@@ -2,5 +2,7 @@ package config
 
 // Config holds server configuration
 type Config struct {
-	Port int
+	Port     int
+	DocsPath string
+	DBPath   string // Add this field
 }
