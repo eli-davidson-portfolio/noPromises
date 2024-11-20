@@ -11,7 +11,7 @@ func main() {
 	// Create new server
 	srv, err := server.NewServer(server.Config{
 		Port:     8080,
-		DocsPath: "./docs", // DBPath:   "noPromises.db",
+		DocsPath: "./docs",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -31,10 +31,15 @@ func main() {
 type MockFileReaderFactory struct{}
 
 func (f *MockFileReaderFactory) Create(_ map[string]interface{}) (server.Process, error) {
-	return &MockFileReader{}, nil
+	return &MockFileReader{
+		id: "mock-file-reader",
+	}, nil
 }
 
-type MockFileReader struct{}
+type MockFileReader struct {
+	id string
+}
 
 func (m *MockFileReader) Start(_ context.Context) error { return nil }
 func (m *MockFileReader) Stop(_ context.Context) error  { return nil }
+func (m *MockFileReader) ID() string                    { return m.id }

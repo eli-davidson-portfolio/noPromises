@@ -1,65 +1,76 @@
 # API Documentation
 
-This document details the noPromises API endpoints.
+## Core Endpoints
 
-## Documentation Endpoints
+### Documentation Endpoints
 
-### Static Documentation
+#### Static Documentation
 ```http
 GET /docs/*
 ```
-Serves Markdown documentation files with HTML wrapper
-- Automatically converts Markdown to styled HTML
-- Includes syntax highlighting for code blocks
-- Responsive design with mobile support
-- Navigation sidebar
+Serves static documentation files from configured docs directory
+- Markdown files served with HTML wrapper
+- API documentation
+- README.md as home page
 
-### API Documentation
+#### API Documentation
 ```http
-GET /api-docs
+GET /api/*
 ```
-Serves Swagger UI interface
-- Interactive API documentation
-- Try-it-now functionality
-- Schema visualization
-- Request/response examples
+Serves API documentation from docs/api directory
+- Swagger/OpenAPI specification
+- API schemas
+- API documentation
 
-### OpenAPI Specification
+#### Home Page
 ```http
-GET /api/swagger.json
+GET /
 ```
-Serves OpenAPI/Swagger specification
-- Complete API schema
-- Endpoint definitions
-- Data models
-- Authentication requirements
+Serves README.md as the home page
 
-## Network Visualization
+### Flow Management
 
-### Get Network Diagram
+#### Create Flow
 ```http
-GET /diagrams/network/{id}
-
-Response:
+POST /flows
+```
+Request:
+```json
 {
-    "diagram": "graph LR\n    reader[FileReader]:::running\n    writer[FileWriter]:::waiting\n    reader -->|data| writer"
+    "id": "flow-id",
+    "config": {
+        "nodes": {
+            "node-id": {
+                "type": "ProcessType",
+                "config": {}
+            }
+        }
+    }
 }
 ```
-Generates Mermaid diagram for network visualization
-- Node status indication
-- Connection visualization
-- Port labeling
-- State-based styling
 
-### Live Network Updates
+#### Get Flow
 ```http
-GET /diagrams/network/{id}/live
+GET /flows/{id}
 ```
-WebSocket endpoint for real-time updates
-- Live state changes
-- Connection status
-- Error indication
-- Performance metrics
+Response:
+```json
+{
+    "id": "flow-id",
+    "state": "created|running|stopped",
+    "config": {}
+}
+```
+
+#### Start Flow
+```http
+POST /flows/{id}/start
+```
+
+#### Stop Flow
+```http
+POST /flows/{id}/stop
+```
 
 ## Response Formats
 
@@ -67,7 +78,7 @@ WebSocket endpoint for real-time updates
 ```json
 {
     "data": {
-        // Response data specific to endpoint
+        // Response data
     }
 }
 ```
@@ -76,29 +87,7 @@ WebSocket endpoint for real-time updates
 ```json
 {
     "error": {
-        "message": "Error description",
-        "code": "ERROR_CODE",
-        "details": {}
+        "message": "Error description"
     }
 }
 ```
-
-## Common Status Codes
-- 200: Successful request
-- 201: Resource created
-- 400: Bad request
-- 404: Resource not found
-- 500: Server error
-- 101: Switching protocols (WebSocket)
-
-## Content Types
-- `application/json`: API responses
-- `text/html`: Documentation pages
-- `text/markdown`: Raw documentation
-- `application/json`: Diagram data
-
-## Authentication
-Currently using basic authentication for all endpoints
-- Include credentials in request header
-- Token-based auth coming soon
-- Rate limiting applied to all endpoints

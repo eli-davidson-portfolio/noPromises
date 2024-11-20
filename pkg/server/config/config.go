@@ -4,5 +4,4 @@ package config
 type Config struct {
 	Port     int
 	DocsPath string
-	DBPath   string // Add this field
 }

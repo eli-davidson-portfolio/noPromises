@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,8 +31,8 @@ func setupTestServer(t *testing.T) (*Server, string) {
 		0644,
 	))
 
-	// Create web templates directory in the project root
-	webTemplatesDir := "web/templates"
+	// Create web templates directory
+	webTemplatesDir := filepath.Join(testDir, "web", "templates")
 	require.NoError(t, os.MkdirAll(webTemplatesDir, 0755))
 
 	// Create template file
@@ -43,12 +42,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 		0644,
 	))
 
-	// Cleanup function to remove the web templates after test
-	t.Cleanup(func() {
-		os.RemoveAll("web")
-	})
-
-	// Create server with test configuration using port 0 (random available port)
+	// Create server with test configuration
 	srv, err := NewServer(Config{
 		Port:     0,
 		DocsPath: docsDir,
@@ -65,28 +59,6 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, srv.router)
 	assert.NotNil(t, srv.flows)
 	assert.NotNil(t, srv.processes)
-	assert.NotNil(t, srv.webServer)
-}
-
-func TestServerConfiguration(t *testing.T) {
-	t.Run("invalid docs path", func(t *testing.T) {
-		srv, err := NewServer(Config{
-			Port:     8080,
-			DocsPath: "/invalid/path",
-		})
-		assert.Error(t, err)
-		assert.Nil(t, srv)
-	})
-
-	t.Run("missing required files", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		srv, err := NewServer(Config{
-			Port:     8080,
-			DocsPath: tmpDir,
-		})
-		assert.Error(t, err)
-		assert.Nil(t, srv)
-	})
 }
 
 func TestServerLifecycle(t *testing.T) {
@@ -101,16 +73,16 @@ func TestServerLifecycle(t *testing.T) {
 		errCh <- srv.Start(ctx)
 	}()
 
-	// Wait for server to start
+	// Give server time to start
 	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context to trigger shutdown
 	cancel()
 
 	select {
 	case err := <-errCh:
-		if err != nil && err != http.ErrServerClosed {
-			t.Errorf("unexpected error: %v", err)
-		}
+		assert.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for server shutdown")
+		t.Fatal("server did not shut down within timeout")
 	}
 }

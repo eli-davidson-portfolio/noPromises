@@ -1,200 +1,100 @@
 package web
 
 import (
-	"encoding/json"
-	"fmt"
 	"html/template"
 	"net/http"
-	"strings"
+	"time"
 )
 
-// ManagedFlow represents a flow in the system
+// ManagedFlow represents a flow with its runtime state
 type ManagedFlow struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	ID        string                 `json:"id"`
+	Config    map[string]interface{} `json:"config"`
+	State     string                 `json:"state"`
+	StartTime *time.Time             `json:"started_at,omitempty"`
+	Error     string                 `json:"error,omitempty"`
 }
 
-// FlowManager interface for managing flows
+// FlowManager defines the interface for managing flows
 type FlowManager interface {
 	List() []ManagedFlow
+	Get(id string) (*ManagedFlow, bool)
 }
 
 // Server handles web interface requests
 type Server struct {
-	templates *template.Template
-	flows     FlowManager
-	static    http.Handler
+	flowManager FlowManager
+	templates   *template.Template
 }
 
-// NewServer creates a new web interface server
-func NewServer(opts ...ServerOption) *Server {
-	s := &Server{
-		flows: &defaultFlowManager{},
-	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(s)
-	}
-
-	// Set defaults if not provided through options
-	if s.templates == nil {
-		tmpl := template.Must(template.ParseGlob("web/templates/*.html"))
-		s.templates = tmpl
-	}
-	if s.static == nil {
-		s.static = http.FileServer(http.Dir("web/static"))
-	}
-
-	return s
-}
-
-// ServerOption allows customizing the server
+// ServerOption configures the web server
 type ServerOption func(*Server)
 
-// WithTemplates sets custom templates for the server
+// WithFlowManager sets the flow manager
+func WithFlowManager(fm FlowManager) ServerOption {
+	return func(s *Server) {
+		s.flowManager = fm
+	}
+}
+
+// WithTemplates sets the HTML templates
 func WithTemplates(t *template.Template) ServerOption {
 	return func(s *Server) {
 		s.templates = t
 	}
 }
 
-// WithStatic sets custom static file handler
-func WithStatic(h http.Handler) ServerOption {
-	return func(s *Server) {
-		s.static = h
+// NewServer creates a new web server
+func NewServer(opts ...ServerOption) *Server {
+	s := &Server{}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// HandleHome renders the home page
+func (s *Server) HandleHome() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		data := struct {
+			Title string
+		}{
+			Title: "NoPromises Flow Manager",
+		}
+		if err := s.templates.ExecuteTemplate(w, "index.html", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
-// WithFlowManager sets custom flow manager
-func WithFlowManager(fm FlowManager) ServerOption {
-	return func(s *Server) {
-		s.flows = fm
+// HandleFlows renders the flows page
+func (s *Server) HandleFlows() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		flows := s.flowManager.List()
+		data := struct {
+			Title   string
+			Flows   []ManagedFlow
+			Content string
+		}{
+			Title:   "Active Flows",
+			Flows:   flows,
+			Content: "", // Empty content for now
+		}
+		err := s.templates.ExecuteTemplate(w, "index.html", data)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
-// ServeHTTP implements http.Handler
+// Add this method to implement http.Handler
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/static/") {
-		s.static.ServeHTTP(w, r)
-		return
-	}
-
 	switch r.URL.Path {
 	case "/":
 		s.HandleHome()(w, r)
-	case "/api/v1/flows":
+	case "/flows":
 		s.HandleFlows()(w, r)
 	default:
-		if strings.HasPrefix(r.URL.Path, "/api/v1/flows/") && strings.HasSuffix(r.URL.Path, "/viz") {
-			s.HandleFlowVisualization()(w, r)
-			return
-		}
 		http.NotFound(w, r)
-	}
-}
-
-// HandleHome returns the handler for the home page
-func (s *Server) HandleHome() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		if s.templates == nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-
-		data := struct {
-			Title string
-			Flows []ManagedFlow
-		}{
-			Title: "noPromises Dashboard",
-			Flows: s.flows.List(),
-		}
-
-		err := s.templates.ExecuteTemplate(w, "index.html", data)
-		if err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-	}
-}
-
-// HandleFlows returns the handler for flow management
-func (s *Server) HandleFlows() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			flows := s.flows.List()
-			w.Header().Set("Content-Type", "text/html")
-			for _, flow := range flows {
-				fmt.Fprintf(w, `<div class="flow-item">%s</div>`, flow.ID)
-			}
-
-		case http.MethodPost:
-			var newFlow struct {
-				ID     string         `json:"id"`
-				Config map[string]any `json:"config"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&newFlow); err != nil {
-				http.Error(w, "Invalid request body", http.StatusBadRequest)
-				return
-			}
-
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<div class="flow-item">%s</div>`, newFlow.ID)
-
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
-}
-
-// HandleFlowVisualization returns the handler for flow visualization
-func (s *Server) HandleFlowVisualization() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		flowID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/flows/"), "/viz")
-
-		// Check if flow exists
-		found := false
-		for _, flow := range s.flows.List() {
-			if flow.ID == flowID {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			http.Error(w, "Flow not found", http.StatusNotFound)
-			return
-		}
-
-		// Return mock visualization data
-		response := struct {
-			Nodes []map[string]string `json:"nodes"`
-			Edges []map[string]string `json:"edges"`
-		}{
-			Nodes: []map[string]string{
-				{"id": "1", "label": "Start"},
-				{"id": "2", "label": "End"},
-			},
-			Edges: []map[string]string{
-				{"from": "1", "to": "2"},
-			},
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-	}
-}
-
-// defaultFlowManager is a basic implementation of FlowManager
-type defaultFlowManager struct{}
-
-func (m *defaultFlowManager) List() []ManagedFlow {
-	return []ManagedFlow{
-		{ID: "test-flow-1", Status: "running"},
-		{ID: "test-flow-2", Status: "stopped"},
 	}
 }

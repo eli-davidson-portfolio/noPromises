@@ -1,279 +1,162 @@
-# Flow Server Subsystem
-
-The server subsystem provides HTTP-based management of FBP networks.
+# Server Architecture
 
 ## Core Components
 
-### Flow Server
-
+### Server Structure
 ```go
-type FlowServer struct {
-    networks map[string]*Network    // Active networks
-    mutex    sync.RWMutex          // Thread safety
-    router   *chi.Router           // HTTP routing
-    port     int                   // Server port
-    registry *ProcessRegistry      // Available process types
+type Server struct {
+    config    Config           // Server configuration
+    router    *mux.Router      // HTTP router
+    flows     *FlowManager     // Flow management
+    processes *ProcessRegistry // Process type registry
+    webServer *http.Server     // HTTP server
+}
+```
+
+### Configuration
+```go
+type Config struct {
+    Port     int    // HTTP server port
+    DocsPath string // Path to documentation files
+    DBPath   string // Database path (optional)
+}
+```
+
+## Flow Management
+
+### Flow Manager
+```go
+type FlowManager struct {
+    flows map[string]*Flow
+    mu    sync.RWMutex
+}
+
+type Flow struct {
+    ID     string
+    State  string                 // created, running, stopped
+    Config map[string]interface{} // Flow configuration
 }
 ```
 
 ### Process Registry
-
 ```go
 type ProcessRegistry struct {
     processes map[string]ProcessFactory
-    mutex     sync.RWMutex
+    mu        sync.RWMutex
 }
 
-type ProcessFactory func(config ProcessConfig) (Process, error)
+func (r *ProcessRegistry) Register(typeName string, factory ProcessFactory) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    r.processes[typeName] = factory
+}
 ```
 
-### Flow Configuration
+## Route Handling
 
+### Documentation Routes
 ```go
-type FlowConfig struct {
-    ID      string                 `json:"id"`
-    Nodes   map[string]NodeConfig  `json:"nodes"`
-    Edges   []EdgeConfig          `json:"edges"`
-}
+// Serve static documentation
+s.router.PathPrefix("/docs/").Handler(
+    http.StripPrefix("/docs/", 
+    http.FileServer(http.Dir(s.config.DocsPath))))
 
-type NodeConfig struct {
-    Type   string                 `json:"type"`
-    Config map[string]interface{} `json:"config"`
-}
+// Serve API documentation
+s.router.PathPrefix("/api/").Handler(
+    http.StripPrefix("/api/", 
+    http.FileServer(http.Dir(filepath.Join(s.config.DocsPath, "api")))))
 
-type EdgeConfig struct {
-    FromNode string `json:"fromNode"`
-    FromPort string `json:"fromPort"`
-    ToNode   string `json:"toNode"`
-    ToPort   string `json:"toPort"`
+// Serve home page
+s.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    http.ServeFile(w, r, filepath.Join(s.config.DocsPath, "README.md"))
+})
+```
+
+## Server Lifecycle
+
+### Initialization
+1. Verify documentation path exists
+2. Check for required files (README.md, swagger.json)
+3. Create router and managers
+4. Set up routes
+
+### Server Start
+```go
+func (s *Server) Start(ctx context.Context) error {
+    s.webServer = &http.Server{
+        Addr:    fmt.Sprintf(":%d", s.config.Port),
+        Handler: s.router,
+    }
+
+    errCh := make(chan error, 1)
+    go func() {
+        errCh <- s.webServer.ListenAndServe()
+    }()
+
+    select {
+    case <-ctx.Done():
+        return s.webServer.Shutdown(context.Background())
+    case err := <-errCh:
+        return err
+    }
 }
 ```
 
-## HTTP API
+## Flow Operations
 
-### Flow Management
+### Flow Creation
+```go
+func (s *Server) CreateFlow(id string, config map[string]interface{}) error {
+    s.flows.mu.Lock()
+    defer s.flows.mu.Unlock()
 
-#### Create Flow
-```http
-POST /api/flows
-Content-Type: application/json
-
-{
-    "id": "flow1",
-    "nodes": {
-        "reader": {
-            "type": "FileReader",
-            "config": {
-                "path": "/path/to/file"
-            }
-        },
-        "transformer": {
-            "type": "UpperCase",
-            "config": {}
-        }
-    },
-    "edges": [
-        {
-            "fromNode": "reader",
-            "fromPort": "out",
-            "toNode": "transformer",
-            "toPort": "in"
-        }
-    ]
-}
-```
-
-#### List Flows
-```http
-GET /api/flows
-
-Response:
-{
-    "flows": [
-        {
-            "id": "flow1",
-            "status": "running",
-            "nodes": ["reader", "transformer"]
-        }
-    ]
-}
-```
-
-#### Get Flow Details
-```http
-GET /api/flows/{id}
-
-Response:
-{
-    "id": "flow1",
-    "status": "running",
-    "nodes": {
-        "reader": {
-            "type": "FileReader",
-            "status": "running",
-            "metrics": {
-                "packetsProcessed": 100,
-                "errors": 0
-            }
-        }
-    },
-    "edges": [
-        {
-            "fromNode": "reader",
-            "fromPort": "out",
-            "toNode": "transformer",
-            "toPort": "in",
-            "metrics": {
-                "packetsTransferred": 100,
-                "bufferUsage": 0.5
-            }
-        }
-    ]
+    s.flows.flows[id] = &Flow{
+        ID:     id,
+        State:  "created",
+        Config: config,
+    }
+    return nil
 }
 ```
 
 ### Flow Control
+- Start Flow: Changes flow state to "running"
+- Stop Flow: Changes flow state to "stopped"
+- Get Flow: Retrieves flow by ID
+- Flow State Management: Thread-safe state transitions
 
-#### Start Flow
-```http
-POST /api/flows/{id}/start
-```
+## Process Management
 
-#### Stop Flow
-```http
-POST /api/flows/{id}/stop
-```
-
-### Process Registry
-
-#### List Available Processes
-```http
-GET /api/processes
-
-Response:
-{
-    "processes": [
-        {
-            "type": "FileReader",
-            "description": "Reads files line by line",
-            "ports": {
-                "in": [],
-                "out": [
-                    {
-                        "name": "out",
-                        "type": "string",
-                        "description": "File contents"
-                    }
-                ]
-            },
-            "config": {
-                "path": {
-                    "type": "string",
-                    "required": true,
-                    "description": "File path to read"
-                }
-            }
-        }
-    ]
+### Process Registration
+```go
+func (s *Server) RegisterProcessType(name string, factory ProcessFactory) {
+    s.processes.Register(name, factory)
 }
 ```
 
-## Implementation
-
-### Server Setup
+### Process Factory Interface
 ```go
-func NewFlowServer(config ServerConfig) *FlowServer {
-    r := chi.NewRouter()
-    
-    server := &FlowServer{
-        networks: make(map[string]*Network),
-        router:   r,
-        port:     config.Port,
-        registry: NewProcessRegistry(),
-    }
-    
-    server.setupRoutes()
-    return server
-}
-```
-
-### Flow Creation
-```go
-func (s *FlowServer) CreateFlow(config FlowConfig) error {
-    s.mutex.Lock()
-    defer s.mutex.Unlock()
-    
-    network := NewNetwork()
-    
-    // Create nodes
-    for id, nodeConfig := range config.Nodes {
-        factory, exists := s.registry.Get(nodeConfig.Type)
-        if !exists {
-            return fmt.Errorf("unknown node type: %s", nodeConfig.Type)
-        }
-        
-        process, err := factory(nodeConfig.Config)
-        if err != nil {
-            return fmt.Errorf("creating node %s: %w", id, err)
-        }
-        
-        network.AddProcess(id, process)
-    }
-    
-    // Create connections
-    for _, edge := range config.Edges {
-        err := network.Connect(
-            edge.FromNode, edge.FromPort,
-            edge.ToNode, edge.ToPort,
-        )
-        if err != nil {
-            return fmt.Errorf("connecting edge: %w", err)
-        }
-    }
-    
-    s.networks[config.ID] = network
-    return nil
+type ProcessFactory interface {
+    Create(config map[string]interface{}) (Process, error)
 }
 ```
 
 ## Best Practices
 
-### Configuration Validation
-- Validate all flow configurations
-- Check for cycles in connections
-- Verify required ports are connected
-- Validate process configurations
+### Thread Safety
+- Use mutex protection for shared state
+- RLock for reads, Lock for writes
+- Keep lock durations minimal
+- Copy data for responses
 
 ### Error Handling
-- Return appropriate HTTP status codes
-- Provide detailed error messages
-- Clean up on partial failures
-- Handle concurrent modifications
+- Validate inputs early
+- Return appropriate errors
+- Clean up on failure
+- Log errors appropriately
 
-### Security
-- Validate input data
-- Sanitize configurations
-- Implement authentication
-- Use HTTPS
-
-### Monitoring
-- Track network status
-- Monitor process metrics
-- Log flow changes
-- Collect performance data
-
-## Example Usage
-
-### Creating and Starting a Flow
-```bash
-# Create flow
-curl -X POST http://localhost:8080/api/flows \
-    -H "Content-Type: application/json" \
-    -d @flow-config.json
-
-# Start flow
-curl -X POST http://localhost:8080/api/flows/flow1/start
-
-# Monitor flow
-curl http://localhost:8080/api/flows/flow1
-``` 
+### Resource Management
+- Clean shutdown on context cancellation
+- Proper file handling
+- Memory management
+- Connection handling
