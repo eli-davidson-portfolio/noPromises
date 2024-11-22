@@ -3,19 +3,22 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/elleshadow/noPromises/internal/db"
 	"github.com/gorilla/mux"
 )
 
 // Config holds server configuration
 type Config struct {
-	Port     int
-	DocsPath string
-	DBPath   string
+	Port           int
+	DocsPath       string
+	DBPath         string
+	MigrationsPath string // Path to migration files
 }
 
 // FlowManager manages flow instances
@@ -63,6 +66,30 @@ func NewServer(config Config) (*Server, error) {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return nil, fmt.Errorf("required file missing: %s", path)
 		}
+	}
+
+	// Initialize database
+	database, err := db.New(config.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("initializing database: %w", err)
+	}
+
+	// Run migrations
+	migrationManager := db.NewMigrationManager(database)
+	migrationsPath := config.MigrationsPath
+	if migrationsPath == "" {
+		migrationsPath = "internal/db/migrations"
+	}
+	if err := migrationManager.ApplyMigrations(context.Background(), migrationsPath); err != nil {
+		return nil, fmt.Errorf("applying migrations: %w", err)
+	}
+
+	// Get current version for logging
+	version, err := migrationManager.GetCurrentVersion(context.Background())
+	if err != nil {
+		log.Printf("[WARN] Failed to get current schema version: %v", err)
+	} else {
+		log.Printf("[INFO] Database initialized with schema version %d", version)
 	}
 
 	s := &Server{

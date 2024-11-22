@@ -2,7 +2,7 @@
 BUILD_DIR := bin
 WEB_DIR := web
 
-.PHONY: all install-hooks check lint test build clean server-build server-start server-start-port-% server-stop copy-web-assets test-web
+.PHONY: all install-hooks check lint test build clean server-build server-start server-start-port-% server-stop copy-web-assets test-web new-migration
 
 # Default target runs all checks and builds
 all: check build
@@ -104,3 +104,24 @@ copy-web-assets:
 test-web: 
 	@echo "Running web interface tests..."
 	go test -v -race ./internal/server/web/...
+
+# Create new migration files
+new-migration:
+	@if [ -z "$(name)" ]; then \
+		echo "Error: Missing migration name. Usage: make new-migration name=<migration_name>"; \
+		exit 1; \
+	fi
+	@echo "Creating new migration: $(name)"
+	@next_version=$$(printf "%06d" $$(( $$(ls internal/db/migrations/*.up.sql 2>/dev/null | wc -l) + 1 ))); \
+	up_file="internal/db/migrations/$${next_version}_$$(echo $(name) | tr ' ' '_').up.sql"; \
+	down_file="internal/db/migrations/$${next_version}_$$(echo $(name) | tr ' ' '_').down.sql"; \
+	touch "$$up_file" "$$down_file"; \
+	echo "-- Migration: $(name)" > "$$up_file"; \
+	echo "-- Up migration" >> "$$up_file"; \
+	echo "\n" >> "$$up_file"; \
+	echo "-- Migration: $(name)" > "$$down_file"; \
+	echo "-- Down migration" >> "$$down_file"; \
+	echo "\n" >> "$$down_file"; \
+	echo "Created migration files:"; \
+	echo "  $$up_file"; \
+	echo "  $$down_file"

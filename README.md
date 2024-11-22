@@ -11,6 +11,13 @@ noPromises is a strict implementation of J. Paul Morrison's Flow-Based Programmi
 - Network-based topology
 - Strong typing
 
+### Database System
+- SQLite with WAL mode
+- Migration management
+- Version tracking
+- Transaction safety
+- Foreign key support
+
 ### Documentation System
 - Markdown with HTML rendering
 - API documentation (Swagger/OpenAPI)
@@ -96,6 +103,23 @@ docs/
 | `make build` | Build all binaries |
 | `make server-start` | Start server on port 8080 |
 | `make server-stop` | Stop running server |
+| `make new-migration name="migration_name"` | Create new migration files |
+
+### Database Migrations
+```bash
+# Create new migration files
+make new-migration name="create_users_table"
+
+# This creates:
+# - internal/db/migrations/NNNNNN_create_users_table.up.sql
+# - internal/db/migrations/NNNNNN_create_users_table.down.sql
+```
+
+Migration files follow the format:
+- `{version}_{name}.up.sql` for forward migrations
+- `{version}_{name}.down.sql` for rollback migrations
+- Version numbers are 6-digit sequential numbers
+- Names should be descriptive and use underscores
 
 ### Testing
 ```bash
@@ -127,6 +151,9 @@ go test ./pkg/server/...
 - HTML documentation rendering
 - Swagger UI integration
 - Mermaid diagram generation
+- Database migration system
+- SQLite with WAL mode
+- Transaction-safe migrations
 
 ### Coming Soon 🚧
 - WebSocket implementation

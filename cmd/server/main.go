@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 
 	"github.com/elleshadow/noPromises/pkg/server"
+	_ "github.com/mattn/go-sqlite3" // Import SQLite driver
 )
 
 func main() {
 	// Parse command line flags
 	port := flag.Int("port", 8080, "Server port")
 	docsPath := flag.String("docs", "", "Path to documentation files")
+	dbPath := flag.String("db", "noPromises.db", "Path to SQLite database file")
+	migrationsPath := flag.String("migrations", "internal/db/migrations", "Path to database migrations")
 	flag.Parse()
 
 	// Get absolute path for docs
@@ -30,9 +33,10 @@ func main() {
 
 	// Create and configure server
 	srv, err := server.NewServer(server.Config{
-		Port:     *port,
-		DocsPath: absDocsPath,
-		DBPath:   "noPromises.db",
+		Port:           *port,
+		DocsPath:       absDocsPath,
+		DBPath:         *dbPath,
+		MigrationsPath: *migrationsPath,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
