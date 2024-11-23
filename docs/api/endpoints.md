@@ -1,93 +1,61 @@
-# API Documentation
+# API Endpoints
 
-## Core Endpoints
+## Authentication
 
-### Documentation Endpoints
-
-#### Static Documentation
+### Generate Token
 ```http
-GET /docs/*
-```
-Serves static documentation files from configured docs directory
-- Markdown files served with HTML wrapper
-- API documentation
-- README.md as home page
+POST /token
+Content-Type: application/json
 
-#### API Documentation
-```http
-GET /api/*
-```
-Serves API documentation from docs/api directory
-- Swagger/OpenAPI specification
-- API schemas
-- API documentation
-
-#### Home Page
-```http
-GET /
-```
-Serves README.md as the home page
-
-### Flow Management
-
-#### Create Flow
-```http
-POST /flows
-```
-Request:
-```json
 {
-    "id": "flow-id",
-    "config": {
-        "nodes": {
-            "node-id": {
-                "type": "ProcessType",
-                "config": {}
-            }
-        }
-    }
+    "username": "string",
+    "password": "string"
 }
 ```
 
-#### Get Flow
-```http
-GET /flows/{id}
-```
 Response:
 ```json
 {
-    "id": "flow-id",
-    "state": "created|running|stopped",
-    "config": {}
+    "token": "jwt.token.here"
 }
 ```
 
-#### Start Flow
+### Protected Endpoints
+All endpoints except `/health` and `/token` require authentication via Bearer token:
+
 ```http
-POST /flows/{id}/start
+GET /protected-endpoint
+Authorization: Bearer <token>
 ```
 
-#### Stop Flow
+## Health Check
+
 ```http
-POST /flows/{id}/stop
+GET /health
 ```
 
-## Response Formats
+Returns 501 Not Implemented if no router is configured.
 
-### Success Response
+## Error Responses
+
+### Unauthorized
 ```json
 {
-    "data": {
-        // Response data
-    }
+    "error": "missing authorization token"
 }
 ```
 
-### Error Response
+### Rate Limited
 ```json
 {
-    "error": {
-        "message": "Error description"
-    }
+    "error": "rate limit exceeded"
 }
 ```
+
+## Testing
+
+The API includes test endpoints that verify:
+- Basic API functionality
+- Authentication flow
+- Rate limiting
+- Concurrent operations

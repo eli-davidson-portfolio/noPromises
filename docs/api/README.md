@@ -1,60 +1,87 @@
 # noPromises API Documentation
 
-Welcome to the noPromises API documentation. This documentation provides comprehensive information about the API endpoints, schemas, and usage.
+## Core Components
 
-## Contents
+### API Server
+The API server provides a RESTful interface with the following key features:
 
-- [API Endpoints](endpoints.md) - Detailed documentation of all available API endpoints
-- [JSON Schemas](schemas.md) - JSON schemas for request and response payloads
-- [OpenAPI Specification](swagger.json) - Complete OpenAPI/Swagger specification
+- Authentication middleware with JWT support
+- Rate limiting
+- Error handling
+- Database integration
 
-## Quick Start
+### Key Interfaces
 
-### Core Endpoints
+```go
+// DB interface defines required database operations
+type DB interface {
+    // Add database methods as needed
+}
 
-1. **Flow Management**
-   - Create Flow: `POST /flows`
-   - Get Flow: `GET /flows/{id}`
-   - Start Flow: `POST /flows/{id}/start`
-   - Stop Flow: `POST /flows/{id}/stop`
-
-2. **Documentation**
-   - Static Docs: `GET /docs/*`
-   - API Docs: `GET /api/*`
-   - Home Page: `GET /`
-
-3. **Diagrams**
-   - Network Diagram: `GET /diagrams/network/{id}`
-   - Live Updates: `GET /diagrams/network/{id}/live` (WebSocket)
-
-### Response Format
-
-Success Response:
-```json
-{
-    "data": {
-        // Response payload
-    }
+// API represents the main API server
+type API struct {
+    db     DB
+    router http.Handler
 }
 ```
 
-Error Response:
+### Configuration
+
+The API server can be configured using functional options:
+
+```go
+api := New(
+    WithDB(db),
+    // Add other options as needed
+)
+```
+
+## Authentication
+
+Authentication is handled via JWT tokens with the following features:
+
+- Bearer token authentication
+- Token generation endpoint
+- Protected routes
+- Claims-based authorization
+
+### Authentication Flow
+
+1. Client requests token via `/token` endpoint
+2. Server validates credentials and issues JWT
+3. Client includes token in `Authorization: Bearer <token>` header
+4. Server validates token and processes request
+
+### Rate Limiting
+
+The API includes a token bucket rate limiter:
+- Configurable rate and window
+- Per-endpoint rate limits
+- Automatic request throttling
+
+## Error Handling
+
+Standardized error responses:
+
 ```json
 {
     "error": {
-        "message": "Error description"
+        "code": "ERROR_CODE",
+        "message": "Human readable message"
     }
 }
 ```
 
-## Interactive Documentation
+Common error types:
+- Invalid credentials
+- Missing/invalid token  
+- Rate limit exceeded
+- Internal server errors
 
-For interactive API documentation, visit:
-- Swagger UI: `/api-docs`
-- OpenAPI Specification: `/api/swagger.json`
+## Testing
 
-## Further Reading
-
-- For detailed endpoint documentation, see [endpoints.md](endpoints.md)
-- For JSON schema definitions, see [schemas.md](schemas.md)
-- For complete API specification, see [swagger.json](swagger.json)
+The API includes comprehensive test coverage:
+- Unit tests for all components
+- Concurrent operation testing
+- Authentication flow testing
+- Rate limiter testing

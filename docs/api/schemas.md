@@ -1,85 +1,34 @@
-# API JSON Schemas
+# API Schemas
 
-## Flow Configuration Schemas
+## Authentication
 
-### Flow Creation Request
+### Token Request
 ```json
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
-    "required": ["id", "nodes", "edges"],
+    "required": ["username", "password"],
     "properties": {
-        "id": {
+        "username": {
             "type": "string",
-            "description": "Unique identifier for the flow"
+            "minLength": 1
         },
-        "nodes": {
-            "type": "object",
-            "additionalProperties": {
-                "$ref": "#/definitions/NodeConfig"
-            },
-            "minProperties": 1
-        },
-        "edges": {
-            "type": "array",
-            "items": {
-                "$ref": "#/definitions/EdgeConfig"
-            }
+        "password": {
+            "type": "string",
+            "minLength": 1
         }
     }
 }
 ```
 
-### Node Configuration
+### Token Response
 ```json
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "id": "#/definitions/NodeConfig",
     "type": "object",
-    "required": ["type", "config"],
+    "required": ["token"],
     "properties": {
-        "type": {
+        "token": {
             "type": "string",
-            "description": "Process type identifier"
-        },
-        "config": {
-            "type": "object",
-            "additionalProperties": true,
-            "description": "Process-specific configuration"
-        }
-    }
-}
-```
-
-### Flow Response
-```json
-{
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "required": ["data"],
-    "properties": {
-        "data": {
-            "type": "object",
-            "required": ["id", "config", "state"],
-            "properties": {
-                "id": {
-                    "type": "string"
-                },
-                "config": {
-                    "type": "object"
-                },
-                "state": {
-                    "type": "string",
-                    "enum": ["created", "starting", "running", "stopping", "stopped", "error"]
-                },
-                "started_at": {
-                    "type": ["string", "null"],
-                    "format": "date-time"
-                },
-                "error": {
-                    "type": "string"
-                }
-            }
+            "description": "JWT token"
         }
     }
 }
@@ -88,19 +37,37 @@
 ### Error Response
 ```json
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
     "required": ["error"],
     "properties": {
         "error": {
-            "type": "object",
-            "required": ["message"],
-            "properties": {
-                "message": {
-                    "type": "string"
-                }
-            }
+            "type": "string",
+            "description": "Error message"
         }
     }
 }
+```
+
+## API Error Types
+
+```go
+// Common API errors
+var (
+    ErrInvalidCredentials = &Error{
+        Code:    "INVALID_CREDENTIALS",
+        Message: "Invalid username or password",
+    }
+    ErrMissingToken = &Error{
+        Code:    "MISSING_TOKEN",
+        Message: "Missing authorization token",
+    }
+    ErrInvalidToken = &Error{
+        Code:    "INVALID_TOKEN",
+        Message: "Invalid token",
+    }
+    ErrRateLimitExceeded = &Error{
+        Code:    "RATE_LIMIT_EXCEEDED",
+        Message: "Rate limit exceeded",
+    }
+)
 ```
