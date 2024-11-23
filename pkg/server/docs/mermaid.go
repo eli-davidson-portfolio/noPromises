@@ -1,74 +1,84 @@
 package docs
 
 import (
+	"encoding/json"
 	"fmt"
-	"strings"
+	"log"
+	"net/http"
+	"sync"
 )
 
-// MermaidGenerator generates Mermaid diagrams from network configurations
+// MermaidGenerator handles network diagram generation
 type MermaidGenerator struct {
-	networks map[string]interface{}
+	networks sync.Map
 }
 
-// NewMermaidGenerator creates a new MermaidGenerator instance
+// NewMermaidGenerator creates a new diagram generator
 func NewMermaidGenerator() *MermaidGenerator {
-	return &MermaidGenerator{
-		networks: make(map[string]interface{}),
-	}
+	return &MermaidGenerator{}
 }
 
-// SetNetwork updates or adds a network configuration
-func (g *MermaidGenerator) SetNetwork(id string, network interface{}) {
-	g.networks[id] = network
+// SetNetwork updates the network definition
+func (m *MermaidGenerator) SetNetwork(id string, network map[string]interface{}) {
+	m.networks.Store(id, network)
 }
 
-// GenerateFlowDiagram creates a Mermaid diagram from a network configuration
-func (g *MermaidGenerator) GenerateFlowDiagram(networkID string) (string, error) {
-	network, exists := g.networks[networkID]
-	if !exists {
-		return "", fmt.Errorf("network not found: %s", networkID)
+// GetNetwork retrieves a network definition
+func (m *MermaidGenerator) GetNetwork(id string) (map[string]interface{}, bool) {
+	if val, ok := m.networks.Load(id); ok {
+		return val.(map[string]interface{}), true
 	}
+	return nil, false
+}
 
-	var diagram strings.Builder
-	diagram.WriteString("graph LR\n")
-
-	// Convert network interface to map
-	netMap, ok := network.(map[string]interface{})
+// GenerateDiagram creates a Mermaid diagram for a network
+func (m *MermaidGenerator) GenerateDiagram(id string) (string, error) {
+	network, ok := m.GetNetwork(id)
 	if !ok {
-		return "", fmt.Errorf("invalid network configuration")
+		return "", fmt.Errorf("network not found: %s", id)
 	}
+
+	// Basic diagram generation
+	diagram := "graph LR\n"
 
 	// Add nodes
-	if nodes, ok := netMap["nodes"].(map[string]interface{}); ok {
+	if nodes, ok := network["nodes"].(map[string]interface{}); ok {
 		for id, node := range nodes {
-			nodeMap, ok := node.(map[string]interface{})
-			if !ok {
-				continue
+			if nodeData, ok := node.(map[string]interface{}); ok {
+				nodeType := nodeData["type"].(string)
+				status := nodeData["status"].(string)
+				diagram += fmt.Sprintf("    %s[%s]:::%s\n", id, nodeType, status)
 			}
-			nodeType := nodeMap["type"].(string)
-			status := nodeMap["status"].(string)
-			diagram.WriteString(fmt.Sprintf("    %s[%s]:::%s\n", id, nodeType, status))
 		}
 	}
 
 	// Add edges
-	if edges, ok := netMap["edges"].([]interface{}); ok {
-		for _, edge := range edges {
-			edgeMap, ok := edge.(map[string]interface{})
-			if !ok {
-				continue
+	if edges, ok := network["edges"].([]interface{}); ok {
+		for _, e := range edges {
+			if edge, ok := e.(map[string]interface{}); ok {
+				from := edge["from"].(string)
+				to := edge["to"].(string)
+				port := edge["port"].(string)
+				diagram += fmt.Sprintf("    %s -->|%s| %s\n", from, port, to)
 			}
-			from := edgeMap["from"].(string)
-			to := edgeMap["to"].(string)
-			port := edgeMap["port"].(string)
-			diagram.WriteString(fmt.Sprintf("    %s -->|%s| %s\n", from, port, to))
 		}
 	}
 
-	// Add style definitions
-	diagram.WriteString("\n    classDef running fill:#d4edda,stroke:#28a745;\n")
-	diagram.WriteString("    classDef waiting fill:#fff3cd,stroke:#ffc107;\n")
-	diagram.WriteString("    classDef error fill:#f8d7da,stroke:#dc3545;\n")
+	return diagram, nil
+}
 
-	return diagram.String(), nil
+// HandleNetworkDiagram serves network diagrams
+func (m *MermaidGenerator) HandleNetworkDiagram(w http.ResponseWriter, _ *http.Request, id string) {
+	diagram, err := m.GenerateDiagram(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"diagram": diagram,
+	}); err != nil {
+		log.Printf("[ERROR] Failed to encode diagram response: %v", err)
+	}
 }

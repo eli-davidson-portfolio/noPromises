@@ -24,6 +24,152 @@
                         }
                     }
                 }
+            },
+            "post": {
+                "summary": "Create a new flow",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FlowDefinition"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Flow created successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Flow"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid flow definition",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/flows/{flow-id}": {
+            "parameters": [
+                {
+                    "name": "flow-id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            ],
+            "get": {
+                "summary": "Get flow details",
+                "responses": {
+                    "200": {
+                        "description": "Flow details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Flow"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Flow not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/flows/{flow-id}/start": {
+            "parameters": [
+                {
+                    "name": "flow-id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            ],
+            "post": {
+                "summary": "Start a flow",
+                "responses": {
+                    "200": {
+                        "description": "Flow started successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Flow"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Flow not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/flows/{flow-id}/stop": {
+            "parameters": [
+                {
+                    "name": "flow-id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                        "type": "string"
+                    }
+                }
+            ],
+            "post": {
+                "summary": "Stop a flow",
+                "responses": {
+                    "200": {
+                        "description": "Flow stopped successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Flow"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Flow not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     },
@@ -31,6 +177,7 @@
         "schemas": {
             "Flow": {
                 "type": "object",
+                "required": ["id", "state"],
                 "properties": {
                     "id": {
                         "type": "string"
@@ -38,6 +185,78 @@
                     "state": {
                         "type": "string",
                         "enum": ["created", "starting", "running", "stopping", "stopped", "error"]
+                    }
+                }
+            },
+            "FlowDefinition": {
+                "type": "object",
+                "required": ["id", "nodes", "edges"],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "nodes": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/Node"
+                        }
+                    },
+                    "edges": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Edge"
+                        }
+                    }
+                }
+            },
+            "Node": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                    "type": {
+                        "type": "string"
+                    },
+                    "config": {
+                        "type": "object"
+                    }
+                }
+            },
+            "Edge": {
+                "type": "object",
+                "required": ["fromNode", "fromPort", "toNode", "toPort"],
+                "properties": {
+                    "fromNode": {
+                        "type": "string"
+                    },
+                    "fromPort": {
+                        "type": "string"
+                    },
+                    "toNode": {
+                        "type": "string"
+                    },
+                    "toPort": {
+                        "type": "string"
+                    }
+                }
+            },
+            "Error": {
+                "type": "object",
+                "required": ["error"],
+                "properties": {
+                    "error": {
+                        "type": "object",
+                        "required": ["message"],
+                        "properties": {
+                            "message": {
+                                "type": "string"
+                            },
+                            "code": {
+                                "type": "string"
+                            },
+                            "details": {
+                                "type": "object"
+                            }
+                        }
                     }
                 }
             }

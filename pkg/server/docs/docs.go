@@ -9,18 +9,22 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/russross/blackfriday/v2"
 )
 
+// Config holds documentation server configuration
 type Config struct {
 	DocsPath string
 }
 
+// Server handles documentation serving
 type Server struct {
 	router     *mux.Router
 	docsPath   string
 	mermaidGen *MermaidGenerator
 }
 
+// NewServer creates a new documentation server
 func NewServer(config Config) *Server {
 	return &Server{
 		router:     mux.NewRouter(),
@@ -29,159 +33,83 @@ func NewServer(config Config) *Server {
 	}
 }
 
+// Router returns the server's router
 func (s *Server) Router() *mux.Router {
 	return s.router
 }
 
+// SetupRoutes configures the server routes
 func (s *Server) SetupRoutes() {
-	s.logDebug("Setting up docs server routes with docsPath: %s", s.docsPath)
+	if s.router == nil {
+		s.router = mux.NewRouter()
+	}
 
-	// API documentation UI and swagger.json
-	s.router.HandleFunc("/api-docs", s.HandleSwaggerUI).Methods("GET")
-	s.router.HandleFunc("/api/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		s.logDebug("Serving swagger.json from: %s", filepath.Join(s.docsPath, "api", "swagger.json"))
-		w.Header().Set("Content-Type", "application/json")
-		http.ServeFile(w, r, filepath.Join(s.docsPath, "api", "swagger.json"))
-	}).Methods("GET")
+	// Serve static files first - use the docs path for static files
+	staticPath := filepath.Join(s.docsPath, "static")
+	s.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/",
+		http.FileServer(http.Dir(staticPath))))
 
-	// Network visualization endpoints
-	s.router.HandleFunc("/diagrams/network/{id}", s.handleNetworkDiagram).Methods("GET")
-	s.router.HandleFunc("/diagrams/network/{id}/live", s.handleLiveDiagram).Methods("GET")
+	// API documentation
+	s.router.HandleFunc("/api-docs", s.HandleSwaggerUI)
+	s.router.HandleFunc("/docs/api/swagger.json", s.HandleSwaggerJSON)
 
-	// Serve static documentation files with HTML wrapper
-	fileServer := http.FileServer(http.Dir(s.docsPath))
-	s.router.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.logDebug("Incoming request path: %s", r.URL.Path)
-		s.logDebug("Looking in directory: %s", s.docsPath)
+	// Add diagram routes
+	s.router.HandleFunc("/diagrams/network/{id}", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		s.HandleFlowDiagram(w, r, vars["id"])
+	})
 
-		// Remove /docs prefix if present
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/docs")
-		s.logDebug("Path after trim: %s", r.URL.Path)
+	s.router.HandleFunc("/diagrams/network/{id}/live", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	})
 
-		// If accessing root, serve README.md
-		if r.URL.Path == "/" || r.URL.Path == "" {
-			r.URL.Path = "/README.md"
-			s.logDebug("Serving root, updated path to: %s", r.URL.Path)
-		}
-
-		fullPath := filepath.Join(s.docsPath, r.URL.Path)
-		s.logDebug("Full file path: %s", fullPath)
-
-		// Check if file exists
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			s.logDebug("File not found: %s", fullPath)
-			http.Error(w, "Documentation not found", http.StatusNotFound)
-			return
-		}
-
-		// For Markdown files, wrap them in HTML
-		if strings.HasSuffix(r.URL.Path, ".md") {
-			content, err := os.ReadFile(fullPath)
-			if err != nil {
-				s.logDebug("Error reading file: %v", err)
-				http.Error(w, "Documentation not found", http.StatusNotFound)
-				return
-			}
-
-			s.logDebug("Serving markdown file with HTML wrapper")
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			s.renderDocPage(w, string(content))
-			return
-		}
-
-		// Serve other files normally
-		s.logDebug("Serving static file")
-		fileServer.ServeHTTP(w, r)
-	}))
+	// Handle markdown files - must be last to avoid conflicting with other routes
+	s.router.PathPrefix("/docs/").HandlerFunc(s.HandleMarkdown)
 }
 
-// renderDocPage wraps markdown content in a styled HTML page
-func (s *Server) renderDocPage(w http.ResponseWriter, content string) {
-	html := `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>noPromises Documentation</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5/github-markdown.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>
-        body {
-            box-sizing: border-box;
-            min-width: 200px;
-            max-width: 980px;
-            margin: 0 auto;
-            padding: 45px;
-            background: #f6f8fa;
-        }
-        .markdown-body {
-            background: white;
-            padding: 45px;
-            border-radius: 6px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-        }
-        @media (max-width: 767px) {
-            body { padding: 15px; }
-            .markdown-body { padding: 15px; }
-        }
-        nav {
-            margin-bottom: 20px;
-            padding: 10px;
-            background: white;
-            border-radius: 6px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-        }
-        nav a {
-            color: #0366d6;
-            text-decoration: none;
-            margin-right: 15px;
-        }
-        nav a:hover { text-decoration: underline; }
-        pre { background: #f6f8fa; padding: 16px; border-radius: 6px; }
-        code { font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,monospace; }
-    </style>
-</head>
-<body>
-    <nav>
-        <a href="/docs">Home</a>
-        <a href="/docs/guides/getting-started.md">Getting Started</a>
-        <a href="/docs/api/endpoints.md">API</a>
-        <a href="/docs/architecture">Architecture</a>
-    </nav>
-    <div class="markdown-body">
-        <div id="content"></div>
-    </div>
-    <script>
-        // Render markdown content
-        document.getElementById('content').innerHTML = marked.parse(` + "`" + content + "`" + `);
+// HandleMarkdown renders markdown files as HTML
+func (s *Server) HandleMarkdown(w http.ResponseWriter, r *http.Request) {
+	s.logDebug("Received markdown request for: %s", r.URL.Path)
 
-        // Add syntax highlighting to code blocks
-        document.querySelectorAll('pre code').forEach(block => {
-            block.className = 'language-' + (block.className || 'plaintext');
-        });
-    </script>
-</body>
-</html>`
+	filePath := filepath.Join(s.docsPath, strings.TrimPrefix(r.URL.Path, "/docs/"))
+	s.logDebug("Looking for file at: %s", filePath)
 
-	fmt.Fprint(w, html)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		s.logDebug("File read error: %v", err)
+		http.Error(w, "Document not found", http.StatusNotFound)
+		return
+	}
+	s.logDebug("Successfully read file of size: %d bytes", len(content))
+
+	// Convert markdown to HTML
+	html := blackfriday.Run(content)
+	s.logDebug("Converted to HTML of size: %d bytes", len(html))
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.renderDocPage(w, string(html))
+	s.logDebug("Response sent")
 }
 
-// Add these debug logging functions
-func (s *Server) logDebug(format string, args ...interface{}) {
-	log.Printf("[DEBUG] "+format, args...)
+// HandleSwaggerJSON serves the OpenAPI specification
+func (s *Server) HandleSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
+	filePath := filepath.Join(s.docsPath, "api", "swagger.json")
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		http.Error(w, "Swagger specification not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(content); err != nil {
+		s.logDebug("Error writing swagger response: %v", err)
+	}
 }
 
-// Handler implementations...
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.logDebug("Serving docs request: %s", r.URL.Path)
-	s.router.ServeHTTP(w, r)
-}
-
-// Add this exported method
+// HandleSwaggerUI serves the Swagger UI
 func (s *Server) HandleSwaggerUI(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, err := w.Write([]byte(`<!DOCTYPE html>
+	fmt.Fprint(w, `<!DOCTYPE html>
 <html>
   <head>
     <title>API Documentation</title>
@@ -212,8 +140,41 @@ func (s *Server) HandleSwaggerUI(w http.ResponseWriter, _ *http.Request) {
       }
     </script>
   </body>
-</html>`))
-	if err != nil {
-		s.logDebug("Error writing Swagger UI response: %v", err)
-	}
+</html>`)
+}
+
+// renderDocPage wraps HTML content in a styled page
+func (s *Server) renderDocPage(w http.ResponseWriter, content string) {
+	tmpl := `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>noPromises Documentation</title>
+    <link rel="stylesheet" href="/static/css/github-markdown.css">
+    <style>
+        .markdown-body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 45px;
+        }
+    </style>
+</head>
+<body class="markdown-body">
+    %s
+</body>
+</html>`
+
+	fmt.Fprintf(w, tmpl, content)
+}
+
+func (s *Server) logDebug(format string, args ...interface{}) {
+	log.Printf("[DEBUG] "+format, args...)
+}
+
+// ServeHTTP implements http.Handler
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.router.ServeHTTP(w, r)
 }
