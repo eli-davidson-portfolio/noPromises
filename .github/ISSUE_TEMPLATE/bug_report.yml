@@ -1,0 +1,84 @@
+name: Bug Report
+description: Create a report to help us improve
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+        
+        This issue will automatically appear in our organization-wide project board.
+
+  - type: input
+    id: project_context
+    attributes:
+      label: Project Context
+      description: Which part of the project is affected?
+      placeholder: "e.g., Login System, Data Display, API Integration"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened?
+      placeholder: "A clear and concise description of what the bug is"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+      placeholder: "A clear and concise description of what you expected to happen"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: What environment did this occur in?
+      placeholder: |
+        - Browser: [e.g. Chrome, Safari]
+        - Version: [e.g. 22]
+        - Operating System: [e.g. Windows, macOS]
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Log Output
+      description: Please copy and paste any relevant log output
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Bug Severity
+      description: How severe is this bug?
+      options:
+        - Low (Minor inconvenience)
+        - Medium (Functionality impaired but workable)
+        - High (Critical functionality broken)
+    validations:
+      required: true 
